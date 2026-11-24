@@ -1,0 +1,36 @@
+{
+  "schema_version": "arthur.companion-status/1",
+  "observed_at": "2026-08-11T12:34:56.000Z",
+  "selection": {
+    "phase": "stable",
+    "host": "vps",
+    "generation": 7,
+    "runtime_generation_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "transition_id": "switch-to-vps-fixture07"
+  },
+  "writers": {
+    "state": "ACTIVE"
+  },
+  "arthur": {
+    "availability": "awake",
+    "place": "home",
+    "pose": "reading",
+    "activity": {
+      "key": "reading",
+      "type": "home",
+      "resources": {
+        "hands": "both",
+        "mobility": "stationary",
+        "body_locked": false
+      }
+    }
+  },
+  "maintenance": {
+    "health": "healthy"
+  },
+  "freshness": {
+    "source_age_ms": 850,
+    "stale_after_ms": 15000,
+    "stale": false
+  }
+}

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Arthur Desktop Companion</title>
+    <link rel="stylesheet" href="companion.css">
+  </head>
+  <body>
+    <main class="companion" aria-label="Arthur 桌面状态">
+      <section class="status-card" aria-live="polite">
+        <span id="hostDot" class="host-dot unknown"></span>
+        <span id="hostLabel">正在确认 Arthur 在哪里</span>
+      </section>
+      <section id="stage" class="stage" aria-label="Arthur 桌宠">
+        <div id="mount" class="mount"></div>
+      </section>
+      <div id="arthurSay" class="say-bubble" hidden aria-live="polite"></div>
+      <button id="refresh" class="refresh" type="button" aria-label="重新读取状态">↻</button>
+      <div id="arthurPokeMenu" class="poke-menu" hidden aria-hidden="true">
+        <section class="poke-panel" data-poke-panel role="dialog" aria-modal="true" aria-labelledby="pokeMenuTitle">
+          <button class="poke-close-x" type="button" data-poke-close aria-label="关闭">×</button>
+          <div data-poke-question>
+            <p class="poke-eyebrow">ARTHUR · READ ONLY</p>
+            <h2 id="pokeMenuTitle">找我做什么？</h2>
+            <div class="poke-options poke-grid poke-main">
+              <button class="poke-option wide" type="button" data-poke-option="letter-read" hidden>我看到你的消息了</button>
+              <button class="poke-option" type="button" data-poke-option="status">你现在怎么样？</button>
+              <button class="poke-option" type="button" data-poke-option="activity">你在做什么？</button>
+              <button class="poke-option" type="button" data-poke-option="just-poke">只是想戳你一下</button>
+              <button class="poke-option" type="button" data-poke-option="wardrobe">给你换件衣服</button>
+              <button class="poke-option" type="button" data-poke-option="gift">给你点东西</button>
+              <button class="poke-option" type="button" data-poke-option="pockets">你身上带着什么？</button>
+              <button class="poke-option" type="button" data-poke-option="magic">给我变个魔法</button>
+              <button class="poke-option" type="button" data-poke-option="away">你先走开一会儿</button>
+            </div>
+          </div>
+          <div data-poke-wardrobe hidden>
+            <p class="poke-eyebrow">ARTHUR · 衣柜</p>
+            <h2>……又要折腾我。穿哪件？</h2>
+            <div class="poke-options poke-grid" data-poke-wardrobe-options></div>
+          </div>
+          <div data-poke-until hidden aria-live="polite">
+            <p class="poke-eyebrow">ARTHUR</p>
+            <h2 data-poke-until-title>什么时候能脱掉？</h2>
+            <div class="poke-options poke-grid" data-poke-until-options></div>
+          </div>
+          <div data-poke-response hidden aria-live="polite">
+            <p class="poke-eyebrow">ARTHUR</p>
+            <h2 data-poke-response-title>现在的状态</h2>
+            <p class="poke-response-text" data-poke-response-text></p>
+            <span class="poke-source" data-poke-response-source>本地桌宠</span>
+            <button class="poke-done" type="button" data-poke-close>知道了</button>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="arthur-life-runtime-v2.js"></script>
+    <script src="arthur-desktop-runtime-v3.js"></script>
+    <script src="arthur-companion-status-adapter-v1.js"></script>
+    <script src="arthur-local-poke-menu-v1.js"></script>
+    <script src="arthur-idle-chatter-v1.js"></script>
+    <script src="arthur-fairy-friends-v1.js"></script>
+    <script src="arthur-pockets-v1.js"></script>
+    <script src="live-client.js"></script>
+  </body>
+</html>

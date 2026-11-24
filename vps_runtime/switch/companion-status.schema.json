@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arthur:companion-status:1",
+  "title": "Arthur desktop companion read-only status projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "observed_at",
+    "selection",
+    "writers",
+    "arthur",
+    "maintenance",
+    "freshness"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "arthur.companion-status/1"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "host",
+        "generation",
+        "runtime_generation_id",
+        "transition_id"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "stable",
+            "switching",
+            "unknown"
+          ]
+        },
+        "host": {
+          "enum": [
+            "mac",
+            "vps",
+            "unknown"
+          ]
+        },
+        "generation": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime_generation_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transition_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^switch-(to-vps|to-mac|pause|rollback)-[A-Za-z0-9_-]{6,64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "writers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "ACTIVE",
+            "INACTIVE",
+            "UNKNOWN"
+          ]
+        }
+      }
+    },
+    "arthur": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "place",
+        "pose",
+        "activity"
+      ],
+      "properties": {
+        "availability": {
+          "enum": [
+            "awake",
+            "sleeping",
+            "unknown"
+          ]
+        },
+        "place": {
+          "enum": [
+            "home",
+            "hotel",
+            "outdoors",
+            "transit",
+            "unknown"
+          ]
+        },
+        "pose": {
+          "enum": [
+            "awake",
+            "sleeping",
+            "waking",
+            "reading",
+            "tea",
+            "outdoors",
+            "unknown"
+          ]
+        },
+        "activity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "type",
+            "resources"
+          ],
+          "properties": {
+            "key": {
+              "enum": [
+                "reading",
+                "tea",
+                "guitar",
+                "sleeping",
+                "outdoors",
+                "learned_activity",
+                "unknown"
+              ]
+            },
+            "type": {
+              "enum": [
+                "home",
+                "hotel",
+                "outdoors",
+                "transit",
+                "exercise",
+                "bathing",
+                "sleep",
+                "unknown"
+              ]
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "hands",
+                "mobility",
+                "body_locked"
+              ],
+              "properties": {
+                "hands": {
+                  "enum": [
+                    "none",
+                    "left",
+                    "right",
+                    "both",
+                    "unknown"
+                  ]
+                },
+                "mobility": {
+                  "enum": [
+                    "stationary",
+                    "mobile",
+                    "unknown"
+                  ]
+                },
+                "body_locked": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "detail": {
+              "enum": [
+                "cooking",
+                "garden",
+                "writing",
+                "music",
+                "housework",
+                "occult",
+                "watching",
+                "online",
+                "work",
+                "resting",
+                "drinking",
+                "hobby",
+                "exercise",
+                "bathing",
+                "pub",
+                "museum",
+                "park",
+                "market",
+                "eating_out",
+                "walking",
+                "fishing",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "outfit": {
+          "enum": [
+            "coat",
+            "raincoat",
+            "tweed",
+            "jumper",
+            "city",
+            "dress",
+            "trench",
+            "pirate",
+            "punk",
+            "unknown"
+          ]
+        },
+        "weather": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sky",
+            "temp"
+          ],
+          "properties": {
+            "sky": {
+              "enum": [
+                "clear",
+                "cloud",
+                "rain",
+                "fog",
+                "snow",
+                "unknown"
+              ]
+            },
+            "temp": {
+              "enum": [
+                "freezing",
+                "cold",
+                "mild",
+                "warm",
+                "hot",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "letter": {
+          "enum": [
+            "waiting",
+            "none"
+          ]
+        },
+        "letter_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        },
+        "fairies": {
+          "enum": [
+            "home",
+            "england",
+            "scotland",
+            "wales",
+            "westcountry",
+            "none"
+          ]
+        }
+      }
+    },
+    "maintenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "health"
+      ],
+      "properties": {
+        "health": {
+          "enum": [
+            "healthy",
+            "degraded",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_age_ms",
+        "stale_after_ms",
+        "stale"
+      ],
+      "properties": {
+        "source_age_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stale_after_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "$comment": "Cross-field phase, binding, unknown, and freshness invariants are normative in companion_status.validate_companion_status()."
+}

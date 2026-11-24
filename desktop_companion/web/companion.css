@@ -1,0 +1,254 @@
+:root {
+  color-scheme: light dark;
+  --ink: #2f382f;
+  --paper: rgba(249, 244, 231, .91);
+  --green: #55745e;
+  --amber: #9a713c;
+  --red: #9a4f4a;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/1.4 ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Rounded", sans-serif;
+  user-select: none;
+}
+
+.companion {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+}
+
+.stage {
+  position: absolute;
+  inset: 34px 0 0;
+  overflow: visible;
+}
+
+.mount, .mount svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+/* One soft shadow, on the wrapper only and on its own layer. It used to sit on the
+   SVG as well (a shadow of a shadow), and WebKit in the transparent window now and
+   then repainted it as a dark flash of his silhouette beside him. */
+.mount {
+  filter: drop-shadow(0 13px 15px rgba(42, 38, 31, .22));
+  transform: translateZ(0);
+}
+
+.status-card {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  top: 7px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 58px);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, .66);
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow: 0 7px 22px rgba(39, 38, 32, .16);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #8b918c;
+  box-shadow: 0 0 0 3px rgba(139, 145, 140, .16);
+}
+
+.host-dot.mac, .host-dot.vps { background: var(--green); }
+.host-dot.switching { background: var(--amber); }
+.host-dot.degraded { background: var(--red); }
+
+.refresh {
+  position: absolute;
+  z-index: 20;
+  right: 8px;
+  top: 7px;
+  width: 31px;
+  height: 31px;
+  border: 1px solid rgba(255, 255, 255, .66);
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 0 7px 22px rgba(39, 38, 32, .12);
+  cursor: pointer;
+}
+
+.refresh.busy { animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.poke-menu[hidden] { display: none !important; }
+.poke-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(24, 30, 26, .18);
+  opacity: 0;
+  transition: opacity .16s ease-in-out;
+}
+.poke-menu.open { opacity: 1; }
+.poke-panel {
+  position: fixed;
+  width: min(330px, calc(100vw - 20px));
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 20px;
+  background: linear-gradient(155deg, rgba(47, 56, 51, .98), rgba(32, 38, 34, .98));
+  color: #fffaf0;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .46);
+  padding: 17px;
+  transform: translateY(8px) scale(.985);
+  opacity: 0;
+  transition: transform .18s ease-in-out, opacity .16s ease-in-out;
+}
+.poke-menu.open .poke-panel { transform: none; opacity: 1; }
+.poke-panel { max-height: calc(100vh - 24px); overflow-y: auto; }
+[data-poke-wardrobe-options] .poke-option { padding-top: 8px; padding-bottom: 8px; font-size: 13px; }
+.poke-close-x {
+  position: absolute;
+  right: 11px;
+  top: 10px;
+  width: 31px;
+  height: 31px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .08);
+  color: #e9eee9;
+  cursor: pointer;
+}
+.poke-eyebrow {
+  margin: 0 42px 4px 0;
+  color: #b8c9bd;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .15em;
+}
+.poke-panel h2 { margin: 0 42px 7px 0; font-size: 20px; }
+.poke-copy { margin: 0 0 13px; color: #bdc8c0; }
+.poke-options { display: grid; gap: 8px; }
+.poke-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+.poke-grid .poke-option { padding-left: 8px; padding-right: 8px; text-align: center; }
+.poke-grid .poke-option.wide { grid-column: 1 / -1; }
+.poke-main .poke-option { padding-top: 9px; padding-bottom: 9px; font-size: 13px; line-height: 1.25; }
+.poke-option.current { outline: 2px solid #d6b76a; }
+.poke-option, .poke-done {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 13px;
+  background: #3a4540;
+  color: #fffaf0;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.poke-option:hover, .poke-done:hover { background: #53635a; }
+.poke-response-text { min-height: 50px; margin: 13px 0; }
+.poke-source {
+  display: inline-block;
+  margin: 0 0 12px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .08);
+  color: #b9c7bd;
+  font-size: 10px;
+  font-weight: 800;
+}
+.poke-done { text-align: center; background: #d6b76a; color: #2a241b; font-weight: 900; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* Something he says on his own, above his head, for a few seconds. */
+.say-bubble[hidden] { display: none !important; }
+.say-bubble {
+  position: absolute;
+  z-index: 30;
+  max-width: 270px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .25s ease, transform .25s ease;
+}
+.say-bubble.open { opacity: 1; transform: none; }
+.say-bubble::after {
+  content: "";
+  position: absolute;
+  left: var(--tail-x, 50%);
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  background: var(--paper);
+  transform: rotate(45deg);
+  border-radius: 0 0 3px 0;
+}
+
+.poke-option[hidden] { display: none !important; }
+
+/* The status pill and refresh button only while she's pointing at him;
+   the pill sits just above his head (placed by live-client). */
+.status-card, .refresh {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+body.pointing .status-card { opacity: 1; }
+.refresh { display: none; }
+body.speaking .status-card { opacity: 0; pointer-events: none; }
+
+/* Calm: the drawing is held still and breathed by the compositor (no repaint). */
+.mount.calm-breathe { will-change: transform; transform-origin: 50% 88%; animation: calm-breathe 3.8s ease-in-out infinite; }
+.mount.calm-breathe.calm-asleep { transform-origin: 50% 92%; animation-duration: 4.6s; }
+@keyframes calm-breathe {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  50% { transform: translateY(-.8px) scale(1.002, 1.006); }
+}
+
+/* Pet-only builds: he's just a desktop pet, not a window onto a server. */
+.pet-only .status-card, .pet-only .refresh, .pet-only .poke-source { display: none !important; }
+
+/* Dizzy or knocked out: the spiral / X eyes are his only eyes (runtime toggles this). */
+svg.eyes-knocked #motion-eye-left, svg.eyes-knocked #motion-eye-right,
+svg.eyes-knocked #expression-closed-eyes, svg.eyes-knocked #fx-eyes-squeeze { display: none !important; }
+
+/* His voice in the bubble: sobbing (catches), trembling (fear), a yell (one jolt).
+   Uses the separate 'translate' property so it doesn't fight the open/close transform. */
+.say-bubble.shake-sob { animation: say-sob .9s ease-in-out infinite; }
+.say-bubble.shake-fear { animation: say-fear .09s linear infinite; }
+.say-bubble.shake-jolt { animation: say-jolt .38s ease-out 1; }
+@keyframes say-sob { 0%, 55%, 100% { translate: 0 0; } 62% { translate: -1px 2px; } 70% { translate: 1px 0; } 78% { translate: 0 2px; } }
+@keyframes say-fear { 0% { translate: -1.2px 0; } 25% { translate: 1px .5px; } 50% { translate: -.8px -.4px; } 75% { translate: 1.2px .3px; } 100% { translate: -1.2px 0; } }
+@keyframes say-jolt { 0% { translate: 0 0; } 15% { translate: -5px -2px; } 30% { translate: 5px 1px; } 45% { translate: -3px 0; } 60% { translate: 2px 0; } 100% { translate: 0 0; } }
+
+.poke-hint { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; opacity: .6; }

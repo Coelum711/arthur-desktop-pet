@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "role": "mac-desktop",
+  "listen_host": "127.0.0.1",
+  "port": 15174,
+  "web_root": "/Users/you/Library/Application Support/ArthurDesktopCompanion/web",
+  "collector": {
+    "host": "mac",
+    "arthur_home": "/Users/you/Arthur",
+    "marker_path": "/Users/you/.arthur-switch/runtime.json",
+    "binding_path": "/Users/you/.arthur-switch/active-generation.json",
+    "runtime_generation_path": "/Users/you/.arthur-switch/active-runtime-generation.json",
+    "sentinel_path": "/Users/you/Arthur/daemon/sentinel_report.json",
+    "state_path": "/Users/you/Arthur/daemon/state.json"
+  },
+  "remote": {
+    "enabled": true,
+    "host": "100.64.0.10",
+    "user": "arthur-maint",
+    "identity": "/Users/you/.ssh/id_ed25519",
+    "port": 22,
+    "exporter_port": 15174,
+    "connect_timeout_seconds": 5,
+    "marker_path": "/var/lib/arthur-switch/runtime.json",
+    "host_key_alias": "arthur-vps.example"
+  }
+}

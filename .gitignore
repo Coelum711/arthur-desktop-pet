@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+desktop_companion/web/_test_live.json
+*.app/
+review/
+vm-share/

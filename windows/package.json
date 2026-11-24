@@ -1,0 +1,57 @@
+{
+  "name": "arthur-desktop-pet",
+  "productName": "Arthur Desktop Pet",
+  "version": "1.0.0",
+  "description": "Arthur Kirkland on your desktop (standalone, no server needed)",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "copy-web": "node scripts/copy-web.js",
+    "dist:win": "npm run prep-win && node scripts/copy-web.js && electron-builder --win zip --x64",
+    "test": "node --test tests/life.test.js",
+    "prep-win": "npm install --no-save --force @koromix/koffi-win32-x64@3.3.8"
+  },
+  "build": {
+    "appId": "uk.arthur.desktop-pet",
+    "files": [
+      "main.js",
+      "preload.js",
+      "life.js",
+      "winwindows.js",
+      "web/**/*",
+      "package.json",
+      "node_modules/koffi/**/*",
+      "node_modules/@koromix/koffi-win32-x64/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "extraFiles": [
+      {
+        "from": "README.txt",
+        "to": "README.txt"
+      }
+    ],
+    "asar": false,
+    "npmRebuild": false
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "koffi": "^3.3.8"
+  }
+}

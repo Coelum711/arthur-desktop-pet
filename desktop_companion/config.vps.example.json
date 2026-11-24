@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "role": "vps-exporter",
+  "listen_host": "127.0.0.1",
+  "port": 15174,
+  "web_root": "/srv/arthur/desktop_companion/web",
+  "collector": {
+    "host": "vps",
+    "arthur_home": "/srv/arthur",
+    "marker_path": "/var/lib/arthur-switch/runtime.json",
+    "binding_path": "/var/lib/arthur-switch/active-generation.json",
+    "runtime_generation_path": "/srv/arthur/.arthur-runtime-generation.json",
+    "sentinel_path": "/var/lib/arthur-vps/sentinel_report.json",
+    "state_path": "/srv/arthur/daemon/state.json"
+  },
+  "remote": null
+}
