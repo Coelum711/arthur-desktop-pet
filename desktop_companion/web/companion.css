@@ -43,7 +43,8 @@ html, body {
    SVG as well (a shadow of a shadow), and WebKit in the transparent window now and
    then repainted it as a dark flash of his silhouette beside him. */
 .mount {
-  filter: drop-shadow(0 13px 15px rgba(42, 38, 31, .22));
+  /* No drop-shadow filter: WebKit recomputed it on every repaint (the ground shadow
+     under his feet stays). */
   transform: translateZ(0);
 }
 
@@ -223,7 +224,10 @@ html, body {
   pointer-events: none;
   transition: opacity .2s ease;
 }
-body.pointing .status-card { opacity: 1; }
+/* The pill only speaks up when the VPS can't be reached; what it used to say
+   lives in his answers to 'what are you doing' and 'how are you'. */
+body:not(.status-error) .status-card { display: none !important; }
+body.status-error .status-card { opacity: 1; }
 .refresh { display: none; }
 body.speaking .status-card { opacity: 0; pointer-events: none; }
 
@@ -252,3 +256,18 @@ svg.eyes-knocked #expression-closed-eyes, svg.eyes-knocked #fx-eyes-squeeze { di
 @keyframes say-jolt { 0% { translate: 0 0; } 15% { translate: -5px -2px; } 30% { translate: 5px 1px; } 45% { translate: -3px 0; } 60% { translate: 2px 0; } 100% { translate: 0 0; } }
 
 .poke-hint { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; opacity: .6; }
+
+/* WebKit keeps a display:none <g> as a hidden container and still lays out
+   everything inside it, every frame: all the outfits he isn't wearing, the spare
+   faces, and the 'zzz' and bubble text (re-shaping that text made it re-open the
+   system fonts each frame). Hiding the insides too gives them no layout at all.
+   (Chromium already treats them so; nothing on screen changes.) */
+/* (An inline style beats the display attribute: the fairies carry display="none"
+   and are shown with style="display: inline".) Only the SVG on the page itself
+   ('.mount > svg'): the GPU renderer's hidden mirror copy must keep answering what
+   each part would look like once shown. */
+.mount > svg g[style*="display: none"] *,
+.mount > svg g[display="none"]:not([style*="display: inline"]) *,
+.mount > svg :is(.expression-alt, .outfit, .guide-hidden, .mouth-viseme, .life-overlay, .desktop-prop, .desktop-effect):not([style*="display: inline"]):not([display="inline"]) * {
+  display: none !important;
+}

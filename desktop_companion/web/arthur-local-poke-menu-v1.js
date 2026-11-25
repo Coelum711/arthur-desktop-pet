@@ -94,7 +94,8 @@
     work:['在处理正事。给我五分钟。', '工作。……文件堆成山了。', '忙正事呢。你呢，作业写完了？'],
     resting:['在歇一会儿，安安静静的。被你戳醒了。', '歇着呢。', '什么都没干。……偶尔也要这样。'],
     drinking:['在家里小酌一杯。就一杯。', '喝一点。……别告诉别人。', '在喝酒。很少的那种。'],
-    hobby:['在摆弄我自己的爱好。', '刺绣。……别笑。', '在做点小东西。'],
+    // 'hobby' covers the guitar, embroidery, models... the VPS doesn't say which, so neither does he.
+    hobby:['在摆弄我自己的爱好。', '在做点自己喜欢的事。', '在弄我自己的东西。别凑过来看。'],
     exercise:['在活动筋骨。别笑。', '运动呢。……没喘。', '在锻炼。你也该动动。'],
     bathing:['在洗澡。……你戳得可真是时候。', '洗澡呢！别、别看！', '……浴室里。晚点再说。'],
     pub:['在酒馆。等我回来再说。', '酒馆。一品脱就够了。', '在酒馆，吵得很。'],
@@ -105,6 +106,32 @@
     walking:['在外面走走，四处看看。', '散步。腿要动一动。', '随便走走。'],
     fishing:['在钓鱼。安静点，鱼要被你吓跑了。', '钓鱼呢。一条都没有。', '在水边。很安静。']
   });
+  // Meals today, who's with him, where exactly (from the VPS, when it says).
+  const ROOM_LABELS = Object.freeze({sitting_room:'客厅', study:'书房', kitchen:'厨房', bedroom:'卧室', bathroom:'浴室',
+    magic_room:'魔法室', hall:'门厅', spare_room:'客房', garden:'花园'});
+  const MEAL_LABELS = Object.freeze({breakfast:'早饭', lunch:'午饭', dinner:'晚饭'});
+  const ago = minutes => minutes < 60 ? `${Math.max(1, minutes)} 分钟` : `${Math.round(minutes / 60)} 个小时`;
+  function mealLine(meals) {
+    if (!meals) return '';
+    if (meals.item && meals.last_minutes != null && meals.last_minutes < 120) return `刚吃了 ${meals.item}。`;
+    const eaten = (meals.eaten || []).map(m => MEAL_LABELS[m]).filter(Boolean);
+    if (eaten.length) return eaten.length === 1 ? `今天吃过${eaten[0]}了。` : `今天${eaten.join('、')}都吃了。`;
+    if (meals.last_minutes != null) return `上一顿是${ago(meals.last_minutes)}前。`;
+    return '';
+  }
+  function spotLine(spot) {
+    if (!spot) return '';
+    if (spot.kind === 'room') return `我在${spot.residence === 'hampshire_house' ? '汉普郡那边的' : ''}${ROOM_LABELS[spot.room] || '屋里'}。`;
+    if (spot.kind === 'venue') return `我在 ${spot.label}。`;
+    if (spot.kind === 'away') return spot.label ? `我在${spot.city}，${spot.label}。` : `我在${spot.city}。`;
+    return '';
+  }
+  function companyLine(company) {
+    if (!Array.isArray(company) || !company.length) return '';
+    const names = list => list.map(p => p.name).join(' 和 ');
+    const home = company.filter(p => p.with === 'home'), out = company.filter(p => p.with === 'outing');
+    return [home.length ? `${names(home)} 在我这儿。` : '', out.length ? `跟 ${names(out)} 一起。` : ''].join('');
+  }
   const ASKED_AGAIN = ['你刚才不是问过了吗。', '……还是一样。一分钟之内没那么多变化。', '你是记性不好，还是就想跟我说话？', '又问？……好吧。'];
 
   const LOCAL_STATE_LABELS = Object.freeze({
@@ -138,7 +165,8 @@
     const previewIsSafe = safeLocalPreview(status);
     const projectedIsSafe = remoteIsSafe || previewIsSafe;
     const petOnly = !!(global.document && global.document.body && global.document.body.classList.contains('pet-only'));
-    const safeSource = previewIsSafe ? 'Mac 本机只读预览' : '已验证安全快照';
+    const host = status && status.host === 'vps' ? 'VPS' : status && status.host === 'mac' ? 'Mac' : null;
+    const safeSource = previewIsSafe ? 'Mac 本机只读预览' : `${host ? host + ' · ' : ''}已验证安全快照`;
 
     if (optionId === 'just-poke') {
       return {
@@ -163,6 +191,8 @@
         const sky = {clear:'晴', cloud:'阴天', rain:'在下雨', fog:'起雾了', snow:'在下雪'}[weather.sky];
         const temp = {freezing:'冷得要命', cold:'挺冷', mild:'不冷不热', warm:'暖和', hot:'热'}[weather.temp];
         if (sky || temp) text += ` 我这边${[sky, temp].filter(Boolean).join('，')}。`;
+        const meal = mealLine(arthur.meals);
+        if (meal) text += ' ' + meal;
         if (arthur.letter === 'waiting') text += ' 另外，我给你发了消息。';
         return {option_id:optionId, title:'现在的状态', text, source:safeSource, remote:remoteIsSafe};
       }
@@ -179,10 +209,11 @@
       if (projectedIsSafe) {
         const key = status.arthur.activity && status.arthur.activity.key || 'unknown';
         const detail = status.arthur.activity && status.arthur.activity.detail;
+        const where = [spotLine(status.arthur.spot), companyLine(status.arthur.company)].filter(Boolean).join(' ');
         return {
           option_id:optionId,
           title:'我在做什么',
-          text:pickLine((detail && DETAIL_LABELS[detail]) || ACTIVITY_LABELS[key] || ACTIVITY_LABELS.unknown),
+          text:pickLine((detail && DETAIL_LABELS[detail]) || ACTIVITY_LABELS[key] || ACTIVITY_LABELS.unknown) + (where ? ' ' + where : ''),
           source:safeSource,
           remote:remoteIsSafe
         };

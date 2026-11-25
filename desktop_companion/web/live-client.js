@@ -112,8 +112,11 @@
       const label = labelFor(this.status, this.preview);
       const text = this.document && this.document.querySelector('#hostLabel');
       const dot = this.document && this.document.querySelector('#hostDot');
-      if (text) text.textContent = label.text;
+      if (text) text.textContent = label.className === 'unknown' ? '连不上 VPS，暂时无法确认 Arthur 的状态' : label.text;
       if (dot) dot.className = `host-dot ${label.className}`;
+      // The pill shows only when the VPS can't be reached.
+      if (this.document && this.document.body) this.document.body.classList.toggle('status-error', label.className === 'unknown' && this.polledOnce === true);
+      this.polledOnce = true;
     }
 
     async poll() {
@@ -164,6 +167,8 @@
   }
 
   async function bootstrap() {
+    // Two-finger click on the trackpad is a hug, never WebKit's 'Reload' menu.
+    global.document.addEventListener('contextmenu', event => event.preventDefault());
     // Pet-only builds (Windows, for friends) have no Arthur on a server to watch:
     // no status pill, no refresh button, nothing about hosts or snapshots.
     if (/[?&]pet=1(&|$)/.test(global.location && global.location.search || '')) {
@@ -196,6 +201,11 @@
         return pokeMenu && pokeMenu.handleInteractionRequest(payload);
       }
     });
+    // Draw him with the GPU instead of repainting the vector drawing every frame
+    // (?svg=1 turns it off, to compare).
+    if (global.ArthurGPU && !/[?&]svg=1(&|$)/.test(global.location && global.location.search || '')) {
+      global.ArthurGPU.attach(svg, mount, {runtime, log:text => host && host.post({type:'log', text})});
+    }
     runtime.setDesktopAutonomy(true);
     let statusTalk = null;
     const adapter = new global.ArthurCompanionStatusAdapter(runtime, {
@@ -436,9 +446,100 @@
     patSpeech = speech;
     // Head pats stay wordless: he'd never admit to liking them, and after a while
     // he just slips away (the runtime's own retreat).
-    pokeMenu.onGift = id => { if (pokeMenu.pockets && (id === 'book' || id === 'rose')) pokeMenu.pockets.gift(id); };
+    pokeMenu.onGift = id => { kindness(.03); if (pokeMenu.pockets && (id === 'book' || id === 'rose')) pokeMenu.pockets.gift(id); };
     fileHands.onFile = (name, count) => { if (pokeMenu.pockets && count === 1) pokeMenu.pockets.gift('file', `「${String(name).length > 12 ? String(name).slice(0, 11) + '…' : name}」`); };
     touchSpeech = speech;
+    // Hugs: how he takes one depends on how many today, and on the moment.
+    runtime.onCradle = phase => {
+      if (phase === 'down') { runtime.cradleMood = null; lines.chainDown(); return; }
+      if (phase !== 'start') return;
+      const inRow = lines.liftChain();
+      if (global.ArthurDesktopCompanion.blanket) global.ArthurDesktopCompanion.blanket.slip(true);
+      const trust = trustLevel();
+      runtime.cradleMood = trust < .35 ? 'panic' : trust < .7 ? 'tense' : null;
+      if (runtime.state === 'sleep') return;
+      if (runtime.cradle) { runtime.cradle.style = heldStyle(true); lines._lastCradleStyle = runtime.cradle.style; }
+      if (runtime.cradleMood === 'panic') speech.say(pick(['放我下来！不要碰我！', '不要——！放开我！', '……呜……放我下来……']), 3200);
+      else if (runtime.cradleMood === 'tense') speech.say(pick(['……放我下来。', '……别扔。', '……慢点。']), 3000);
+      else if (inRow >= 3 && Math.random() < .6) { lines.cradleStart(true); speech.say(pick(LIFT_CHAIN.cradle), 3000); }
+      else lines.cradleStart();
+    };
+    // A hug held on: his mood moves on as it goes (checked twice a second).
+    global.setInterval(() => {
+      if (!runtime.hugHeld || runtime._hugRefused || !runtime.hugStyle || runtime.hugStyle === 'cool') return;
+      const holder = runtime._hugHolder || (runtime._hugHolder = {});
+      const next = evolveHeld(holder, runtime.hugStyle, (performance.now() - runtime.hugStart) / 1000, speech);
+      if (next) runtime.hugStyle = next;
+    }, 500);
+    runtime.onHug = (kind, elapsedMs=0) => {
+      if (kind === 'release') {
+        const style = runtime.hugStyle, secs = elapsedMs / 1000;
+        if (runtime._hugRefused) return;
+        const run = runtime._hugRun;
+        if (run) run.releasedAt = Date.now();
+        if (style === 'squirm' || style === 'doze') speech.say(pick(HELD_TURN.release[style]), 2800);
+        else if (run && run.reading === 'concern' && !run.askedAfter && Math.random() < .5) { run.askedAfter = true; speech.say(pick(HUG_RUN.concernRelease), 3000); }
+        else if (secs > 20 && style !== 'cool' && Math.random() < .5) speech.say(pick(HELD_TURN.release.long), 2800);
+        return;
+      }
+      runtime._hugRefused = false; runtime._hugHolder = null;
+      if (kind === 'asleep') return;                      // he stirs; no words
+      const trust = trustLevel();
+      if (trust < .35) {
+        // Not after what she did: he won't be held.
+        runtime.hugUntil = 0; runtime._hugRefused = true;
+        if (runtime.act) { runtime.act('lookaway'); runtime.act('hidehands'); }
+        speech.say(pick(['……别碰我。', '不要。', '……别。']), 3000);
+        return;
+      }
+      if (trust < .7 && !(pokeMenu.grudge && pokeMenu.grudge.active())) {
+        kindness(.02);
+        runtime.hugStyle = 'shy';
+        global.setTimeout(() => speech.say(pick(['……你不会又……', '……就一下。别做别的。', '……慢点。']), 3200), 450);
+        return;
+      }
+      kindness(.02);
+      if (pokeMenu.grudge && pokeMenu.grudge.active()) { pokeMenu.grudge.offer('hug'); return; }
+      const now = performance.now();
+      if ((runtime.cryUntil && now < runtime.cryUntil) || runtime.slumpCry) {
+        global.setTimeout(() => speech.say(pick(['……呜。', '……嗯。别松手。', '……没事了。我没事了。']), 3500), 500);
+        return;
+      }
+      // Hugged again straight after the last one: a run. A run is either her being
+      // clingy (or playing), or something being wrong; the longer the run and the
+      // more hugs today, the more he worries (late at night, more so).
+      const prev = runtime._hugRun, nowMs = Date.now();
+      const run = runtime._hugRun = prev && prev.releasedAt && nowMs - prev.releasedAt < 90000
+        ? Object.assign(prev, {n:prev.n + 1, releasedAt:0}) : {n:1, releasedAt:0};
+      // Now and then, shy, he ducks out of it altogether (no harm done). Not in a run.
+      if (run.n === 1 && warmthLevel() >= .6 && Math.random() < .15) {
+        runtime.hugUntil = 0; runtime._hugRefused = true;
+        if (runtime.fluster) runtime.fluster(2600);       // pink to the ears, hands up, half a step back
+        speech.say(pick(['……不、不要。现在不行。', '……别、别突然这样。', '……下、下次吧。']), 3000);
+        return;
+      }
+      const c = crimes(); c.hugs = (c.hugs || 0) + 1; memo.save();
+      const n = c.hugs;
+      if (run.n >= 3 && !run.reading) {
+        const h = new Date().getHours(), late = h < 5 || h >= 23;
+        const concern = run.n * (1 + n / 5) * (late ? 1.6 : 1);
+        const clingy = run.n * (1 + 2 * warmthLevel());
+        run.reading = Math.random() * (concern + clingy) < concern ? 'concern' : 'clingy';
+      }
+      let style = heldStyle();
+      if (run.reading === 'concern') style = 'content';        // whatever it is, he holds still for her
+      runtime.hugStyle = style;
+      let pool = HELD.hug[style];
+      if (run.reading === 'concern') {
+        const h = new Date().getHours();
+        pool = run.n === 3 ? HUG_RUN.concern : HUG_RUN.concernMore.concat(h < 5 || h >= 23 ? HUG_RUN.concernLate : []);
+      }
+      else if (run.reading === 'clingy' && style !== 'cross') pool = HUG_RUN.clingy;
+      else if (run.n === 2 && Math.random() < .4) pool = HUG_RUN.again;
+      // Spread over the day, a lot of them: he notices the count, not the moment.
+      else if (run.n === 1 && style === 'content' && Math.random() < Math.min(.6, (n - 4) * .12)) pool = HUG_RUN.manyToday;
+      global.setTimeout(() => speech.say(pick(pool), 3200), 450);
+    };
     runtime.onBellyRub = () => {
       // Sulking: a belly rub is one more guess at making up (usually the wrong one).
       if (pokeMenu.grudge && pokeMenu.grudge.active()) { pokeMenu.grudge.offer('belly'); return; }
@@ -523,10 +624,158 @@
     };
     global.ArthurDesktopCompanion = {runtime, adapter, client, pokeMenu, wardrobe, speech, lines, fileHands, fileLine};
     global.ArthurDesktopCompanion.baited = baited;
+    global.ArthurDesktopCompanion.trust = {level:trustLevel, gain:trustGain, broke:trustBreak, state:() => Object.assign({}, armsTrust()),
+      warmth:warmthLevel, warmthLose, warmthGain, kindness};
     global.ArthurDesktopCompanion.chatter = chatter;
     global.ArthurDesktopCompanion.pockets = pokeMenu.pockets;
     global.ArthurDesktopCompanion.grudge = grudge;
     memo.host = host;
+
+    // The blanket as a thing in the world. Picked up while
+    // under it, he sometimes keeps hold of it; otherwise it slides off and stays
+    // where he was. She can drag it, or throw it (onto him, or near him). Once
+    // he's set down he decides: back under it, fold it away, or the other one.
+    // Only where the shell can show it lying there (the Mac); elsewhere it's
+    // folded away as before.
+    const OTHER_BLANKET = {francis:'alfred', alfred:'francis'};
+    const blanketWorld = (() => {
+      const shellHasIt = !!(host && global.webkit && global.webkit.messageHandlers);
+      let left = null, plan = null, planTimer = null;
+      const say = (list, ms=2800, chance=1) => { if (Math.random() < chance) speech.say(pick(list), ms); };
+      const lateNow = () => { const d = new Date(), h = d.getHours(); return h < 5 || (h === 23 && d.getMinutes() >= 30); };
+      const wanted = () => lateNow() || runtime.blanketNap || runtime.state === 'sleep';
+      // The pattern tile of the rig's own blanket, drawn on a canvas (no images needed).
+      const drawKids = (ctx, el) => {
+        for (const k of el.children) {
+          const a = n => Number(k.getAttribute(n)) || 0;
+          ctx.save();
+          const list = k.transform && k.transform.baseVal;
+          for (let i = 0; list && i < list.numberOfItems; i++) { const m = list.getItem(i).matrix; ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f); }
+          if (k.hasAttribute('opacity')) ctx.globalAlpha *= a('opacity');
+          const fill = k.getAttribute('fill'), stroke = k.getAttribute('stroke');
+          if (k.localName === 'g') drawKids(ctx, k);
+          else if (k.localName === 'rect') { if (fill && fill !== 'none') { ctx.fillStyle = fill; ctx.fillRect(a('x'), a('y'), a('width'), a('height')); } }
+          else if (k.localName === 'circle' || k.localName === 'path') {
+            const p = new Path2D();
+            if (k.localName === 'circle') p.arc(a('cx'), a('cy'), a('r'), 0, Math.PI * 2); else p.addPath(new Path2D(k.getAttribute('d') || ''));
+            if (fill !== 'none') { ctx.fillStyle = fill || '#000'; ctx.fill(p); }
+            if (stroke && stroke !== 'none') { ctx.strokeStyle = stroke; ctx.lineWidth = a('stroke-width') || 1; ctx.lineCap = k.getAttribute('stroke-linecap') || 'butt'; ctx.stroke(p); }
+          }
+          ctx.restore();
+        }
+      };
+      const render = which => {
+        try {
+          const pat = runtime.svg && runtime.svg.querySelector('#arthur-blanket-' + (which === 'francis' ? 'check' : 'roses'));
+          if (!pat) return null;
+          const S = 2, W = 132, H = 66, tw = Number(pat.getAttribute('width')) || 56, th = Number(pat.getAttribute('height')) || 56;
+          const tile = global.document.createElement('canvas'); tile.width = tw * S; tile.height = th * S;
+          const t = tile.getContext('2d'); t.scale(S, S); drawKids(t, pat);
+          const c = global.document.createElement('canvas'); c.width = W * S; c.height = H * S;
+          const x = c.getContext('2d'); x.scale(S, S);
+          const pattern = x.createPattern(tile, 'repeat');
+          if (pattern.setTransform) pattern.setTransform(new DOMMatrix().scale(.55 / S));
+          // A heap of blanket, a fold or two showing.
+          const heap = new Path2D('M6 60 C1 44 12 30 28 28 C34 13 56 9 67 20 C79 7 104 11 109 27 C124 29 131 45 126 60 C96 65 36 65 6 60 Z');
+          x.fillStyle = pattern; x.fill(heap);
+          x.strokeStyle = 'rgba(40, 30, 20, .35)'; x.lineWidth = 1.6; x.stroke(heap);
+          x.strokeStyle = 'rgba(40, 30, 20, .22)'; x.lineWidth = 1.4;
+          x.stroke(new Path2D('M30 30 C44 38 50 50 46 62 M68 21 C66 34 74 46 88 50 M108 29 C100 40 104 52 112 61'));
+          if (which === 'francis') {
+            x.strokeStyle = '#efe4c8'; x.lineWidth = 1.6; x.lineCap = 'round';
+            for (let fx = 12; fx < 122; fx += 7) { x.beginPath(); x.moveTo(fx, 61.5); x.lineTo(fx + .6, 65); x.stroke(); }
+          }
+          return {png:c.toDataURL('image/png'), w:W, h:H};
+        } catch (_) { return null; }
+      };
+      const decideSoon = ms => { global.clearTimeout(planTimer); planTimer = global.setTimeout(decide, ms == null ? 1500 + Math.random() * 2500 : ms); };
+      function decide() {
+        if (!left) return;
+        if (runtime.held || runtime.hostCarry || runtime.cradle || runtime.stolen || runtime.state === 'sleep') { decideSoon(5000); return; }
+        const cross = !!(pokeMenu.grudge && pokeMenu.grudge.active());
+        const r = Math.random();
+        if (!wanted()) plan = 'fold';
+        else if (cross) plan = r < .7 ? 'fold' : 'leave';
+        else plan = r < .6 ? 'wrap' : r < .8 ? 'fold' : 'swap';
+        if (plan === 'leave') { decideSoon(5 * 60 * 1000); return; }
+        host.post({type:'blanket-fetch', on:true});
+      }
+      const takeBack = () => { const which = left.which; left = null; global.clearTimeout(planTimer); host.post({type:'blanket-fetch', on:false}); return which; };
+      return {
+        get left() { return left; },
+        // Picked up while under it. Returns true if he still has it (or it was put away).
+        slip(gentle) {
+          if (!runtime.blanket) return true;
+          if (Math.random() < (gentle ? .75 : .4)) { say(['……毯子我自己拿着。', '别把毯子弄掉了。'], 2600, .3); return true; }
+          const which = runtime.blanket;
+          const art = shellHasIt ? render(which) : null;
+          if (!art) { runtime.putBlanketAway && runtime.putBlanketAway(); return true; }
+          runtime.blanket = null; runtime.blanketNap = false;
+          if (runtime.antic && runtime.antic.type === 'doze') runtime.stopAntic('blanket');
+          left = {which, at:Date.now()};
+          host.post({type:'blanket-drop', png:art.png, w:art.w, h:art.h});
+          say(['啊——毯子……', '我的毯子！'], 2400, .4);
+          return false;
+        },
+        landed() { if (left) decideSoon(); },
+        grabbed() { global.clearTimeout(planTimer); plan = null; if (!runtime.held) say(['……那是我的毯子。', '你拿我毯子干什么。', '……放下。'], 2600, .35); },
+        dropped(thrown, near) {
+          if (!left) return;
+          if (thrown && near && !runtime.held && runtime.state !== 'sleep') say(['喂！', '……差一点砸到我。', '吓我一跳。'], 2600);
+          else if (thrown) say(['……你往哪儿扔呢。', '扔那么远干什么。'], 2600, .5);
+          decideSoon(thrown ? 2500 : 1500);
+        },
+        // She put it on him, or threw it and it landed on him.
+        onto(how) {
+          if (!left) return;
+          runtime.blanket = takeBack();
+          if (how === 'thrown') say(['唔——！', '……你就不能好好递给我吗。', '谁让你扔的……', '……砸到我了。']);
+          else say(['……嗯。', '……谢谢。', '哦。……行。'], 2600, .7);
+          if (!wanted()) {
+            // The middle of the day: he humours her a moment, then folds it.
+            runtime.blanketNap = true;
+            global.setTimeout(() => { if (runtime.blanketNap && runtime.blanket && !(runtime.antic && runtime.antic.type === 'doze') && !runtime.held) { runtime.blanket = null; runtime.blanketNap = false; runtime.blanketPutAwayAt = Date.now(); say(['……白天盖什么毯子。', '好了，收起来了。'], 2600, .6); } }, (20 + Math.random() * 20) * 1000);
+          } else if (!runtime.antic && runtime.state !== 'sleep') runtime.startAntic('doze', {duration:(15 + Math.random() * 20) * 60 * 1000});
+        },
+        reached() {
+          if (!left) return;
+          const which = takeBack();
+          host.post({type:'blanket-clear'});
+          if (plan === 'wrap' || plan === 'swap') {
+            runtime.blanket = plan === 'swap' ? OTHER_BLANKET[which] : which;
+            if (plan === 'swap') say(['……换一条。', '还是换那条吧。'], 2600, .8);
+            else say(['……接着睡。', '嗯……'], 2400, .5);
+            if (wanted() && !runtime.antic && runtime.state !== 'sleep') runtime.startAntic('doze', {duration:(15 + Math.random() * 20) * 60 * 1000});
+          } else {
+            runtime.blanketPutAwayAt = Date.now();
+            say(['……不睡了。', '叠好了。', '算了，收起来。'], 2600, .7);
+          }
+          plan = null;
+        },
+        unreachable() {
+          host.post({type:'blanket-fetch', on:false});
+          say(['……够不着。', '……算了。'], 2600, .8);
+          decideSoon(10 * 60 * 1000);
+        },
+        done(how) {
+          if (!left) return;
+          left = null; global.clearTimeout(planTimer);
+          if (how === 'lost') say(['……毯子呢？', '我的毯子掉哪儿去了。'], 2800);
+        },
+        // Daytime: a nap on the sofa may come with a blanket; up again, it's folded.
+        nap(late) {
+          const dozing = runtime.antic && runtime.antic.type === 'doze';
+          if (!late && dozing && !runtime.blanket && !left && runtime._napBlanketFor !== runtime.antic) {
+            runtime._napBlanketFor = runtime.antic;
+            if (Math.random() < .5) { runtime.blanket = Math.random() < .5 ? 'francis' : 'alfred'; runtime.blanketNap = true; }
+          }
+          if (runtime.blanketNap && !dozing && !runtime.held && !runtime.hostCarry) {
+            runtime.blanket = null; runtime.blanketNap = false; runtime.blanketPutAwayAt = Date.now();
+          }
+        }
+      };
+    })();
+    global.ArthurDesktopCompanion.blanket = blanketWorld;
 
     // Late at night with her still at the computer: a blanket, the corner of
     // the screen, and a doze. And, once, the day's grudges read out.
@@ -546,9 +795,18 @@
       if (runtime.blanket && inBed) {
         memo.data.blanketNight = {day:now.toDateString(), which:runtime.blanket};
       }
+      // One night = the evening's date (after midnight still counts as the night before).
+      const nightKey = new Date(now.getTime() - (h < 5 ? 86400000 : 0)).toDateString();
+      const tonight = memo.data.blanketTonight && memo.data.blanketTonight.night === nightKey
+        ? memo.data.blanketTonight : (memo.data.blanketTonight = {night:nightKey, wraps:0, said:[]});
+      const wrapped = which => { tonight.wraps += 1; if (memo.save) memo.save(); return which; };
+      blanketWorld.nap(late);
       if (late && here && !inBed) {
+        // Once he's folded it away (she picked him up, he went off to do something),
+        // he doesn't fetch it straight back: a good while later at most, and only a
+        // few times a night. (It was every ten minutes while she played with him.)
         const sinceAway = Date.now() - (runtime.blanketPutAwayAt || 0);
-        if (!runtime.blanket && !runtime._blanketPending && sinceAway > 10 * 60 * 1000) {
+        if (!runtime.blanket && !blanketWorld.left && !runtime._blanketPending && sinceAway > 45 * 60 * 1000 && tonight.wraps < 3) {
           const which = Math.random() < .5 ? 'francis' : 'alfred';
           blanketLineSaid = false;
           const asleep = runtime.state === 'sleep' || runtime.sleepSequence;
@@ -561,7 +819,7 @@
               runtime._blanketPending = false;
               global.clearTimeout(runtime._blanketFallback);
               if (runtime.held || (runtime.blanketPutAwayAt || 0) > askedAt) return;
-              runtime.blanket = which;
+              runtime.blanket = wrapped(which);
               if (!runtime.antic) runtime.startAntic('doze', {duration:(20 + Math.random() * 20) * 60 * 1000});
               if (runtime.bedWithStolen) runtime.bedWithStolen();
             };
@@ -570,16 +828,19 @@
             runtime._blanketFallback = global.setTimeout(settle, host ? 75000 : 9000);
             if (host) host.post({type:'go-corner'});
           } else {
-            runtime.blanket = which;
+            runtime.blanket = wrapped(which);
           }
         }
-        if (runtime.blanket && !blanketLineSaid && runtime.state !== 'sleep') {
+        // Who gave it him: once a night for each blanket, not every time it comes out.
+        if (runtime.blanket && !blanketLineSaid && runtime.state !== 'sleep' && !tonight.said.includes(runtime.blanket)) {
           blanketLineSaid = true;
+          tonight.said.push(runtime.blanket);
+          if (memo.save) memo.save();
           speech.say(runtime.blanket === 'francis'
             ? pick(['……这条是弗朗西斯送的。将就着用吧。', '弗朗西斯的毯子……香水味还没散。……暖和就行。', '格纹的。……那家伙别的不行，挑东西的眼光倒还可以。'])
             : pick(['阿尔弗雷德送的这条。……玫瑰。他说因为我们两边的国花都是玫瑰。', '……那小子送的。别笑。', '这条是阿尔弗雷德送的。他居然知道我喜欢什么样的。……别告诉他我说过这话。']), 5000);
         }
-      } else if (runtime.blanket && !inBed && !late) {
+      } else if (runtime.blanket && !inBed && !late && !runtime.blanketNap) {
         runtime.blanket = null;
         if (runtime.antic && runtime.antic.type === 'doze') runtime.stopAntic('morning');
       }
@@ -692,7 +953,7 @@
     // three or four don't come tumbling out together. Only the newest waiting line is
     // kept (older reactions are stale by the time it's their turn).
     const MIN_SHOW = 1600, GAP = 400;
-    let shownAt = 0, hiddenAt = 0, showing = false, pending = null, pendingTimer = null;
+    let shownAt = 0, hiddenAt = 0, showing = false, pending = null, pendingTimer = null, showTimer = null;
     const clockMs = () => (global.performance ? performance.now() : Date.now());
     const speech = {
       say(text, ms=9000, opts={}) {
@@ -710,11 +971,16 @@
         if (readyAt <= now + 5) return speech._show(text, ms, opts);
         pending = {text, ms, opts};
         global.clearTimeout(pendingTimer);
+        global.clearTimeout(showTimer);      // only ever one line on its way (two used to land in the same instant)
         pendingTimer = global.setTimeout(() => {
           const p = pending; pending = null;
           if (!p) return;
           if (showing) { bubble.classList.remove('open'); showing = false; hiddenAt = clockMs(); global.clearTimeout(hideTimer); }
-          global.setTimeout(() => speech._show(p.text, p.ms, p.opts), Math.max(0, hiddenAt + GAP - clockMs()));
+          showTimer = global.setTimeout(() => {
+            showTimer = null;
+            if (pending) { const q = pending; pending = null; return speech._show(q.text, q.ms, q.opts); }   // a newer line won
+            speech._show(p.text, p.ms, p.opts);
+          }, Math.max(0, hiddenAt + GAP - clockMs()));
         }, Math.max(0, (showing ? Math.max(shownAt + MIN_SHOW, now) : now) - now));
         return true;
       },
@@ -981,6 +1247,7 @@
 
   // Trying to make it up to him the wrong way.
   const NOPE = {
+    hug:{first:['……抱我也没用。', '……别以为这样就行了。', '@lookaway ……放开。'], again:['……我说了，没用。', '@lookaway']},
     gift:{first:['……不是这个。', '这个不行。', '……你觉得这样就能打发我？', '收下了。但不代表原谅你。', '……不对。再想想。', '哼。礼物不对。'],
       again:['……还是不对。', '你到底有没有在听我说话。', '……送东西也要用心的。', '不是礼物多就行。']},
     pat:{first:['……摸头也没用。', '别以为摸摸头就完了。', '……手拿开。', '我不是小孩子，摸头哄不好。', '@lookaway ……哼。', '这招对我没用。'],
@@ -1066,6 +1333,21 @@
     first:['……还要再来？', '嗯。还行。', '……就这？', '落地。', '……还可以。', '……有点好玩。我怎么会觉得这个好玩。'],
     again:['……结束了？', '你的手不累吗。', '嗯。今天就到这儿吧。……除非你还想。', '……结束了？', '……哼。还行吧。', '好了好了，玩够了吧。']
   };
+  // Picked up again and again, one straight after another: he counts, he gets
+  // suspicious, then he simply goes limp and lets her get on with it. Very rarely,
+  // if he's fond of her, he can't keep a straight face.
+  const LIFT_CHAIN = {
+    again:['……又来？', '……我脚才刚沾地。', '……你不是才把我放下吗。', '嗯？还没完？'],
+    third:['……第三次了。', '你到底想干什么。', '放下，拎起来，放下，拎起来……你在测试什么？', '……我在数着呢。'],
+    suspicious:['我知道了，你觉得这样很好玩。', '……你是不是在等我生气。', '……我偏不生气。', '……这是什么新的折磨方式？'],
+    limp:['……好。我不挣扎了。你随意。', '……我现在是一袋土豆。土豆没有意见。', '……拎吧。我放弃了。', '……'],
+    deadweight:['……', '……土豆还在。', '……随你。', '……这袋土豆今天很累。', '……我在想别的事情。'],
+    crack:['……噗。', '……够了，别、别让我笑——', '……你真是。……哈。行了行了。'],
+    down:['……又放下了。', '你下一次什么时候拎？我好有个准备。', '……我就站这儿不动了。反正你还会来。'],
+    limpDown:['……', '……土豆落地。', '……完了吗？'],
+    after:['……不拎了？', '……结束了？……哦。', '……玩够了？'],
+    cradle:['……又抱？', '……抱起来放下，抱起来放下。你今天怎么了。', '……这回打算抱多久。']
+  };
   // Going up and up: not sure yet what's happening.
   const RISING = ['哎、哎？往上去了……', '等等，你要把我带到哪儿去？', '……喂，越来越高了。', '我、我还以为只是抱一下……',
     '这已经不是"抱一下"的高度了吧。', '……停。停一下。', '喂喂喂——', '我们……这是要去哪儿？', '你是不是举错方向了。', '……地面离我越来越远了。'];
@@ -1137,6 +1419,54 @@
           '我活了几百年，从来没人敢这么拎我。', '小心我的尾巴！', '……好吧，就一会儿。', '我自己会走！', '别晃！我会晕的。',
           '你要带我去哪儿？', '要是被弗朗西斯看见，我就完了。', '这是绑架。', '放手，不然我……我诅咒你……你！……不对，你只是普通人而已，得换一个……', '轻点！我不是布娃娃！']), 3500);
       },
+      // Picked up straight after being put down: how many in a row this is.
+      liftChain() {
+        const now = Date.now(), c = this._chain;
+        const goesOn = c && (c.downAt ? now - c.downAt < 25000 : now - c.upAt < 60000);
+        this._chain = {n:goesOn ? c.n + 1 : 1, upAt:now, downAt:0, cracked:goesOn && c.cracked};
+        return this._chain.n;
+      },
+      // The nth pickup in a row: true if that took the place of the usual line.
+      repeatLift(n) {
+        const rt = this.runtime, now = Date.now();
+        if (n < 2 || rt.state === 'sleep') return false;
+        let line = null;
+        if (n >= 5) {
+          rt.resigned = true; this._chainLimp = true;        // no struggling: a dead weight
+          if (n >= 7 && !this._chain.cracked && warmthLevel() >= .8 && Math.random() < .3) { this._chain.cracked = true; line = pick(LIFT_CHAIN.crack); }
+          else if (n === 5 || Math.random() < (n === 6 ? .5 : .3)) line = pick(n <= 6 ? LIFT_CHAIN.limp : LIFT_CHAIN.deadweight);
+          if (line) speech.say(line, 3200);
+          this._pickedAt = now;
+          return true;
+        }
+        if (n === 2 && Math.random() < .55) return false;
+        speech.say(pick(n === 2 ? LIFT_CHAIN.again : n === 3 ? LIFT_CHAIN.third : LIFT_CHAIN.suspicious), 3200);
+        this._pickedAt = now;
+        return true;
+      },
+      // Put down in the middle of all that: returns how many in a row it was.
+      chainDown() {
+        const c = this._chain, now = Date.now();
+        if (this._chainLimp) this.runtime.resigned = false;
+        this._chainLimp = false;
+        if (!c || c.downAt) return 0;
+        c.downAt = now;
+        if (c.n >= 4) {
+          // If she stops, he notices.
+          global.setTimeout(() => {
+            if (this._chain !== c || this.runtime.state === 'sleep' || this.runtime.cradle || this._drag) return;
+            if (warmthLevel() >= .7 && Math.random() < .4) speech.say(pick(LIFT_CHAIN.after), 3000);
+          }, 40000);
+        }
+        return c.n;
+      },
+      // A word on landing, sometimes, if it's been a run of them. True if he said one.
+      chainLine(n) {
+        if (n < 3 || Math.random() < .5) return false;
+        this._dropSaid = Date.now();
+        global.setTimeout(() => speech.say(pick(n >= 5 ? LIFT_CHAIN.limpDown : LIFT_CHAIN.down), 3000), 500);
+        return true;
+      },
       // Down after that: dazed and crying on the floor, then gone for a long while.
       traumaLanding() {
         const t = this._trauma;
@@ -1169,9 +1499,10 @@
       // Low: he thinks it's a game. High: frightened. A few low goes and then a
       // sudden big one: he really jumps.
       lifted(level, seconds=0) {
+        if (this.runtime.cradle) return this.cradled(seconds, level);
         const now = Date.now();
         const d = this._drag || (this._drag = {said:{}, scared:false, airborneSince:null,
-          angryAt:10 + Math.random() * 5, lastLevel:level, steadySince:seconds});
+          angryAt:(this._chainLimp ? 22 : 10) + Math.random() * 5, lastLevel:level, steadySince:seconds});
         if (d.worryAt == null) { d.worryAt = d.angryAt + 15 + Math.random() * 6; d.pleadAt = d.worryAt + 16 + Math.random() * 8; }
         this._plays = (this._plays || []).filter(t => now - t < 120000);
         // Held up in the air a long time: first angry (and talking the most),
@@ -1301,10 +1632,12 @@
         }
       },
       dropped(maxLevel, hard, seconds=0) {
+        if (this.runtime.cradle) return;                    // set down from her arms: setDown('gentle') says it
         const now = Date.now();
         const d = this._drag || {said:{}};
         this._drag = null;
         this.runtime.strollUntil = 0; this.runtime.scrapeUntil = 0;
+        const chainN = this.chainDown();
         // Spun round or shaken about: the room keeps going once he's down.
         if (((d.spins || 0) >= 1 || (d.shakes || 0) >= 2) && this.runtime.knock && !hard) {
           this.runtime.knock('dizzy');
@@ -1356,6 +1689,7 @@
           global.setTimeout(() => speech.say(pick(['哼。算你识相。', '……这笔账我记下了。', '早该放了。下次再这样，我真的会诅咒你。', '哼！'])), 600);
           return;
         }
+        if (!hard && this.chainLine(chainN)) return;
         this._plays = (this._plays || []).filter(t => now - t < 120000);
         if (maxLevel < .6) {
           this._plays.push(now);
@@ -1370,7 +1704,120 @@
           this._dropSaid = now + 900;
         }
       },
+      // In her arms: now and then a word, never the dangling fear.
+      cradled(seconds, level=1) {
+        const now = Date.now();
+        if (this.runtime.state === 'sleep') return;
+        if (this.runtime.cradleMood === 'panic') {
+          if (now - (this._cradleSaidAt || 0) > 4000) { this._cradleSaidAt = now; speech.say(pick(['放开我……！', '呜……不要……', '放我下来……求你……']), 2800); }
+          return;
+        }
+        if (this.runtime.cradleMood) return;               // stiff with her: no chatter
+        const cr = this.runtime.cradle;
+        if (cr) {
+          const next = evolveHeld(cr, cr.style || 'content', seconds, speech);
+          if (next) { cr.style = next; this._lastCradleStyle = next; this._cradleSaidAt = now; return; }
+          if (cr.style === 'squirm' || cr.style === 'doze') return;
+        }
+        // Carried about, he takes it as her playing with him: high up is a game, not a fright.
+        const style = (this.runtime.cradle && this.runtime.cradle.style) || 'content';
+        const high = level > 2.4;
+        if (high && !this._cradleHigh && now - (this._cradleSaidAt || 0) > 2500) {
+          this._cradleHigh = true; this._cradleSaidAt = now;
+          speech.say(pick(HELD.high[style]), 3000);
+          return;
+        }
+        if (!high) this._cradleHigh = false;
+        if (seconds > 5 && now - (this._cradleSaidAt || 0) > 9000 && Math.random() < .4) {
+          this._cradleSaidAt = now;
+          speech.say(pick(high ? HELD.high[style] : HELD.low[style]), 3000);
+        }
+      },
+      // Curious and carried over some app's window: what is it? (only the app's name is known)
+      cradleOver(app) {
+        const rt = this.runtime;
+        const a = String(app || '').toLowerCase();
+        const now = Date.now();
+        // Only now and then, and less each time about the same thing today; two at most a carry.
+        const today = new Date().toDateString();
+        const asked = memo.data.overAsked && memo.data.overAsked.day === today ? memo.data.overAsked : (memo.data.overAsked = {day:today, n:{}});
+        const key = a.includes('claude') ? 'claude' : a;
+        const chance = base => base * Math.pow(.5, asked.n[key] || 0);
+        const noteAsked = () => { asked.n[key] = (asked.n[key] || 0) + 1; this._overThisCarry = (this._overThisCarry || 0) + 1; memo.save(); };
+        if ((this._overThisCarry || 0) >= 2) return;
+        // Over Claude's window, in any calm mood: he knows where he came from.
+        if (a.includes('claude') && rt.cradle && !rt.cradleMood && rt.state !== 'sleep') {
+          if (now - (this._overSaidAt || 0) < 4500) return;
+          const egg = memo.data.claudeEgg !== today;
+          if (Math.random() >= (egg ? .35 : chance(.2))) return;
+          noteAsked();
+          this._overSaidAt = now; this._cradleSaidAt = now + (egg ? 9000 : 0);
+          if (egg) {
+            memo.data.claudeEgg = today; memo.save();
+            const steps = ['Claude……？', '……我知道。我是从那里来的。', '……还有那个仓库……', '……哦，不。我什么都没说。'];
+            steps.forEach((t, i) => global.setTimeout(() => speech.say(t, 2400), i * 2700));
+          } else speech.say(pick(['……Claude。', '……嗯。是那里。']), 2600);
+          return;
+        }
+        if (!rt.cradle || rt.cradle.style !== 'curious' || rt.cradleMood || rt.state === 'sleep') return;
+        if (now - (this._overSaidAt || 0) < 4500) return;
+        if (Math.random() >= chance(.45)) return;
+        noteAsked();
+        const has = (...w) => w.some(x => a.includes(x));
+        const pool = a === 'desktop' ? ['……桌面上的这些是什么？', '……这些图标，你都用吗？']
+          : (a === 'arc' || has('safari', 'chrome', 'firefox', 'microsoft edge', 'brave', 'opera')) ? ['这是什么网站？', '……你又在看什么网页。']
+          : has('finder', '访达') ? ['这个文件是什么？', '……这些文件夹里都是什么？']
+          : has('code', 'xcode', 'cursor', 'terminal', 'iterm', 'warp', 'sublime', 'pycharm') ? ['……这一堆字是什么？咒语吗？', '你在写代码？']
+          : has('wechat', '微信', 'qq', 'telegram', 'messages', '信息', 'discord', 'whatsapp', 'slack') || a === 'line' ? ['你在跟谁聊天？', '……谁的消息？']
+          : has('music', 'spotify', '网易云', 'netease', 'qqmusic') ? ['……你在听什么？', '这首歌叫什么？']
+          : has('zotero') ? ['……论文。你读完了吗？']
+          : has('preview', '预览', 'word', 'pages', 'acrobat', 'pdf', 'notes', '备忘录', 'obsidian', 'notion') ? ['这是什么文件？', '……你在写什么？']
+          : has('claude') ? ['……这是什么？在跟谁说话？']
+          : ['这个窗口是什么？', '……这是什么？'];
+        this._overSaidAt = now; this._cradleSaidAt = now;
+        speech.say(pick(pool), 3200);
+      },
+      // Rocked in her arms. Gently, it's a cradle; hard, he either feels it or remembers
+      // the sea, where a deck in a storm pitched far worse than this.
+      cradleRock(rough) {
+        const rt = this.runtime;
+        if (!rt.cradle || rt.state === 'sleep') return;
+        const now = Date.now();
+        if (now - (this._rockSaidAt || 0) < 6000) return;
+        this._rockSaidAt = now; this._cradleSaidAt = now;
+        if (rt.cradleMood) { speech.say(pick(['别、别晃！', '……不要晃……放我下来……']), 2800); return; }
+        const style = rt.cradle.style || 'content';
+        const DIZZY = ['……有点晕。稳一点。', '……慢、慢点……我头晕。', '……别晃了。天花板在转。'];
+        const SEA = ['哈。比起在海上，这算什么。', '……当年船在风暴里可比这晃多了。', '再晃大一点也没关系。我是在甲板上长大的。'];
+        let line, dizzy = false;
+        if (!rough) {
+          line = pick({content:['……像摇篮一样。', '……嗯。这样挺好。'], curious:['……像坐船。', '……再来一次。'], shy:['……别、别晃来晃去的。'],
+            cross:['……你在干什么。'], cool:['……随便你晃。']}[style] || ['……嗯。']);
+        } else if (style === 'cross') line = pick(['别晃了！我又不是摇铃！', '……你够了没有！晃什么晃！']);
+        else if (style === 'cool') line = pick(['……随便你晃。', '……晃够了吗。']);
+        else if (style === 'curious' || Math.random() < .35) line = pick(SEA);
+        else { line = pick(DIZZY); dizzy = true; }
+        if (dizzy) rt.dizzy = {until:(global.performance ? performance.now() : Date.now()) + 1800};
+        speech.say(line, 3200);
+      },
+      cradleStart(quiet=false) {
+        this._overThisCarry = 0;
+        if (this.runtime.state === 'sleep') return;
+        this._cradleSaidAt = Date.now(); this._cradleHigh = false;
+        if (quiet) return;
+        const style = (this.runtime.cradle && this.runtime.cradle.style) || 'content';
+        speech.say(pick(HELD.start[style]), 2800);
+      },
       setDown(kind) {
+        if (kind === 'gentle') {
+          const wary = trustLevel() < .7;
+          kindness(.05);
+          if (this.runtime.state === 'sleep') return;
+          if (wary) { speech.say(pick(['……这次没扔。', '……嗯。', '……放下了。']), 3000); return; }
+          const style = this._lastCradleStyle || 'content';
+          if (Math.random() < .7) speech.say(pick(HELD.down[style]), 3000);
+          return;
+        }
         if (Date.now() - (this._dropSaid || 0) < 2500) return;
         const special = SET_DOWN[kind];
         if (special && Math.random() < .5) { speech.say(pick(special), 3500); return; }
@@ -1379,6 +1826,7 @@
       },
       // How she's moving him about while she holds him.
       dragMotion(kind) {
+        if (this.runtime.cradle && kind === 'stroll') return;   // carried along in her arms: nothing to say about it
         const rt = this.runtime, d = this._drag || (this._drag = {said:{}, scared:false, airborneSince:null, angryAt:10 + Math.random() * 5, lastLevel:0, steadySince:0});
         const now = Date.now();
         if (kind === 'stroll') { rt.strollUntil = performance.now() + 1600; }
@@ -1456,6 +1904,7 @@
   function headPatted(runtime) {
     if (!patSpeech || (runtime.grudge && runtime.grudge.active())) return;
     patCount += 1;
+    kindness(.01);
     if (patHost) patHost.post({type:'pat-count', n:patCount});
     const day = new Date().toDateString();
     if (patsToday.day !== day) patsToday = {day, n:0};
@@ -1541,6 +1990,102 @@
     if (!memo.data.crimes || memo.data.crimes.day !== today) memo.data.crimes = {day:today, read:false};
     return memo.data.crimes;
   }
+  // Held (hugged or carried): how he takes it this time. The more hugs today, the more
+  // often he just lets himself be content.
+  // One step of a long hold: returns the new style if it changed (and says so).
+  function evolveHeld(holder, style, elapsed, speech) {
+    if (!holder.plan && !holder.planned) { holder.plan = planHeld(style); holder.planned = true; }
+    if (style === 'squirm') {
+      if (!holder.insistAt) holder.insistAt = elapsed + 10;     // squirming a while before he insists
+      if (elapsed >= holder.insistAt) { holder.insistAt = elapsed + 6; speech.say(pick(HELD_TURN.insist), 2800); }
+      return null;
+    }
+    const p = holder.plan;
+    if (!p || elapsed < p.at) return null;
+    holder.plan = null;
+    holder.insistAt = elapsed + 10;
+    speech.say(pick(HELD_TURN[p.to]), 3000);
+    return p.to;
+  }
+
+  function heldStyle(carried) {
+    if (warmthLevel() < .6) return 'cool';             // she's made him cross too often lately
+    // Carried about, a quarter of the time he's simply curious: eyes open, looking at everything.
+    if (carried && Math.random() < .25) return 'curious';
+    const n = (crimes().hugs || 0);
+    const content = Math.min(.75, .45 + .05 * n);
+    const r = Math.random();
+    return r < content ? 'content' : r < content + (1 - content) * .55 ? 'shy' : 'cross';
+  }
+  const HELD = {
+    hug:{cool:['……', '……抱完了吗。', '我也不知道你平时那样对待我，突然表现出一副那么温柔的样子是为了什么。', '……我总是搞不懂你。'], content:['……嗯。', '……', '……就一下。', '可惜隔着屏幕，我无法想象你的气味。'], shy:['……突、突然做什么！', '……别、别看我。', '……你今天怎么了。'],
+      cross:['……放开！谁准你抱的！', '……你、你够了没有！', '……我数到三。一、二……']},
+    start:{cool:['……', '……要去哪儿。随便。', '……又要抱着我去哪儿。'], curious:['……嗯？', '……从这儿看，桌面还挺大的。', '……去哪儿？那边吗？'], content:['……嗯。', '……就这样吧。', '……要去哪儿。'], shy:['……干、干什么！', '……别看我。', '……！'],
+      cross:['喂！谁准你抱的！', '……放、放我下来！我自己会走！', '……你这家伙！']},
+    low:{cool:['……', '平时那样对我，现在又抱着我到处走……你到底想怎样。', '……走吧。反正我说了也不算。'], curious:['……那是什么？', '……再往那边一点。', '……嗯。'], content:['……慢点走。', '……嗯。', '……你的手不酸吗。'], shy:['……快放我下来。有人看着。', '……你、你适可而止。'],
+      cross:['……你玩够了没有！', '我不是你的玩具熊！']},
+    high:{cool:['……这么高。然后呢。', '……举高了又怎样。'], curious:['……从上面看，什么都很小。', '……这么高，能看到好远。'], content:['……这么高。', '……你在玩什么。', '……别松手就行。'], shy:['……太、太高了……这算什么游戏。', '……！别举这么高！'],
+      cross:['举这么高干什么！我又不是奖杯！', '……等我下来你就完了！']},
+    down:{squirm:['……终于放下了。', '……哼。'], doze:['……嗯？到了？我没睡。', '……我醒着。一直醒着。'], cool:['……', '……放下了。', '……走完了？'], curious:['……这就到了？', '……还没看完。'], content:['……这就放下了？', '……嗯。', '……谢谢。'], shy:['……哼。', '……下次先说一声。'], cross:['……哼！', '……下次再这样我就……哼！']}
+  };
+
+  // Held a while, his mood moves on: curious settles or wants down; shy or cross either
+  // gives in or wants down; content may doze off. Picked when the hold starts.
+  function planHeld(style) {
+    const r = Math.random(), at = (a, b) => a + Math.random() * (b - a);
+    if (style === 'curious') return {at:at(15, 25), to:r < .4 ? 'content' : 'squirm'};
+    if (style === 'shy') return {at:at(12, 20), to:r < .5 ? 'content' : 'squirm'};
+    if (style === 'cross') return {at:at(12, 20), to:r < .5 ? 'shy' : 'squirm'};
+    if (style === 'content' && r < .3) return {at:at(40, 60), to:'doze'};
+    return null;
+  }
+  // Hugs one after another, and hugs all day long.
+  const HUG_RUN = {
+    again:['……还要？', '……刚抱完。', '……嗯？'],
+    clingy:['……你今天很黏人啊。', '……你是在跟我玩，还是在撒娇？', '……好吧。再一次。', '……你抱上瘾了是不是。', '……再抱下去，我茶都凉了。'],
+    concern:['……你今天怎么了？', '……出什么事了吗。', '……怎么了？跟我说说。'],
+    concernMore:['……不想说也没关系。我在这儿。', '……是谁惹你了？告诉我。', '……好了。好了。', '……嗯。我在。', '……要不要我去泡壶茶。'],
+    concernLate:['……很晚了。抱完就去睡，好吗。', '……睡不着吗。'],
+    concernRelease:['……好点了吗。', '……有事要跟我说。别一个人扛着。', '……嗯。想说的时候再说。'],
+    manyToday:['……怎么今天抱得这么多。', '……今天第几次了。', '……你今天是不是特别闲。', '……再这样我要习惯了。']
+  };
+  const HELD_TURN = {
+    content:['……算了。', '……嗯。就这样吧。', '……也不是不行。'],
+    shy:['……哼。', '……你、你还要抱多久。'],
+    squirm:['……够了。放我下来。我自己走。', '……别、别一直抱着。', '……我要下去。'],
+    doze:['……', '……嗯……'],
+    insist:['……放我下来！', '……我说了，我要下去。', '……喂！'],
+    release:{squirm:['……终于。', '……哼。'], doze:['……嗯？我没睡。', '……什么？我醒着。'], long:['……抱这么久。', '……好了吗。']}
+  };
+
+  // Whether he trusts her arms: thrown out of them, it drops a long way; it comes back
+  // only slowly, a little with each kind thing, and no more than so much a day.
+  function armsTrust() { return memo.data.armsTrust || (memo.data.armsTrust = {v:1, day:'', gained:0}); }
+  function trustLevel() { return armsTrust().v; }
+  function trustGain(x) {
+    const t = armsTrust(); if (t.v >= 1) return;
+    const day = new Date().toDateString();
+    if (t.day !== day) { t.day = day; t.gained = 0; }
+    const g = Math.min(x, Math.max(0, .15 - t.gained), 1 - t.v);
+    if (g <= 0) return;
+    t.v += g; t.gained += g; memo.save();
+  }
+  function trustBreak() { const t = armsTrust(); t.v = Math.max(0, t.v - .35); memo.save(); }
+  // Warmth: not his trust in her arms, just how fond he is right now. Each sulk wears a
+  // little of it away; low, he still lets her hold him, but there's no joy in it.
+  function warmthStore() { return memo.data.warmth || (memo.data.warmth = {v:1, day:'', gained:0}); }
+  function warmthLevel() { return warmthStore().v; }
+  function warmthLose(x) { const w = warmthStore(); w.v = Math.max(0, w.v - x); memo.save(); }
+  function warmthGain(x) {
+    const w = warmthStore(); if (w.v >= 1) return;
+    const day = new Date().toDateString();
+    if (w.day !== day) { w.day = day; w.gained = 0; }
+    const g = Math.min(x, Math.max(0, .2 - w.gained), 1 - w.v);
+    if (g <= 0) return;
+    w.v += g; w.gained += g; memo.save();
+  }
+  // Something kind: mends both, a little.
+  function kindness(x) { trustGain(x); warmthGain(x); }
   function noteCrime(kind) { const c = crimes(); c[kind] = (c[kind] || 0) + 1; memo.save(); }
 
   // What he says around his little antics, and which ones fit right now.
@@ -1640,8 +2185,13 @@
         // She scared his friends off.
         const g = runtime.grudge;
         const line = pick(['……你把它们吓跑了！', '喂！它们好不容易才来一次！', '……都飞走了。你满意了？']);
-        if (g) global.setTimeout(() => g.start({mild:true, line}), 400);
+        if (g) global.setTimeout(() => { if (!g.provoked('fairies')) g.start({mild:true, cause:'fairies', line}); }, 400);
         else speech.say(line, 5000);
+      }
+      // Startled off by something nobody did (the ground went from under him): no one to
+      // blame, and a little lonely about it.
+      if (type === 'fairies' && phase === 'end' && reason === 'startled') {
+        global.setTimeout(() => speech.say(pick(['……你们去哪里呀。又留我一个吗？', '下次再来呀！', '……走得真快。下次再来。']), 4500), 900);
       }
       if (type === 'doze' && phase === 'end' && reason === 'woken') speech.say(pick(['……我没睡着。我在闭目养神。', '嗯？我醒着。一直醒着。', '……什么事？我在思考。']), 4500);
       if (type === 'guitar' && phase === 'end' && reason === 'done' && Math.random() < .3) speech.say(pick(['……今天手感不错。', '弹完了。不许鼓掌。……好吧，可以鼓一下。']), 4000);
@@ -1653,6 +2203,7 @@
   const SULK_LINES = ['哼。', '我还在生气。', '别跟我说话。', '……头还疼。', '你以为扔完我还能当没事？', '现在别碰我。'];
   // Each sulk wants one particular thing; she has to guess (he drops hints).
   const MAKE_UP = [
+    {kind:'hug', hint:['……冷。', '……今天有点累。'], done:'……好了。不气了。'},
     {kind:'gift', item:'tea', hint:['……喉咙好干。', '要是有人泡杯茶就好了。'], done:'……看在茶的份上，原谅你了。这次。'},
     {kind:'gift', item:'scone', hint:['……有点饿了。没什么。', '下午茶的点心呢？'], done:'……司康可以。原谅你了。别得寸进尺。'},
     {kind:'gift', item:'rose', hint:['花园里的玫瑰开得真好。……跟你没关系。', '想看点好看的东西。'], done:'……玫瑰？你真是……行吧。不生气了。'},
@@ -1722,6 +2273,7 @@
         dizzyHits = [];
         noteCrime('sulks');
         if (host && (how.runOff || (!how.mild && Math.random() < .5))) {
+          warmthLose(.06);                                  // bad enough that he walked out
           ranOff = true;
           speech.say(how.runOff && how.line ? how.line : pick(['我不跟你玩了。', '哼。我走了。', '……你自己玩吧。']), 4000);
           const away = how.awayMs || (2 + Math.random() * 3) * 60 * 1000;
@@ -1731,6 +2283,7 @@
           runtime._stormOff.timer = global.setTimeout(() => stormLeave(), 1200);
           return 'ran-off';
         }
+        warmthLose(how.mild ? .02 : .04);
         const ms = how.mild ? (1 + Math.random()) * 60 * 1000 : (3 + Math.random() * 2) * 60 * 1000;
         const worn = runtime.outfit;
         const options = MAKE_UP.filter(n => !(n.kind === 'outfit' && n.item === worn) && !(n.kind === 'away' && !host));
@@ -1754,6 +2307,7 @@
       },
       end(reason) {
         if (!runtime.sulk) return false;
+        if (runtime.wakeFrames) runtime.wakeFrames();       // draw the change now, not at the next calm frame
         // Made up (or it blew over): for half an hour he's still wary of the same thing.
         if (reason !== 'x' && runtime.sulk.cause) runtime._wary = {cause:runtime.sulk.cause, until:Date.now() + 30 * 60 * 1000};
         runtime.sulk = null;
@@ -1833,6 +2387,7 @@
         if (right) {
           const line = need.done;
           grudge.end('made-up');
+          kindness(.05);
           if (typeof runtime.setLifeState === 'function' && kind !== 'gift') runtime.setLifeState('happy');
           speech.say(line, 6000);
           return 'made-up';
@@ -2039,6 +2594,7 @@
         runtime.hostLanded();
         if (runtime._stormOff && runtime.stormLetGo) runtime.stormLetGo();
         if (asleep) global.setTimeout(() => global.ArthurDesktopCompanion.speech.say(pick(SLEEP_STIR), 2600, {asleep:true}), 300);
+        if (global.ArthurDesktopCompanion.blanket) global.ArthurDesktopCompanion.blanket.landed();
       },
       pointer:(x, y) => runtime.hostPointer(x, y),
       leave:() => runtime.hostPointerLeave(),
@@ -2120,10 +2676,15 @@
         if (on) global.ArthurDesktopCompanion.speech.say(pick(['呼……呼……等、等一下……', '跑、跑不动了……', '……你给我站住……呼……', '我、我只是……喘口气……', '……绅士是不跑步的。呼……']), 3500);
       },
       pickedUp:() => {
+        if (runtime.cradle) return;
         if (runtime._stormOff) return;                 // storming off: the grab already got its line
-        runtime.putBlanketAway && runtime.putBlanketAway();
+        const bw = global.ArthurDesktopCompanion.blanket;
+        if (bw) bw.slip(false); else if (runtime.putBlanketAway) runtime.putBlanketAway();
         if (runtime._blanketPending) { runtime._blanketPending = false; runtime.blanketPutAwayAt = Date.now(); }   // the corner can wait
         const grab = runtime._lastGrab;
+        const byTail = grab && grab.zone === 'tail' && Date.now() - grab.at < 5000;
+        const inRow = lines.liftChain();
+        if (!byTail && lines.repeatLift(inRow)) return;
         const gripLines = GRIP_LINES[grab && Date.now() - grab.at < 5000 ? grab.zone : ''];
         if (gripLines && Math.random() < .55) {
           global.ArthurDesktopCompanion.speech.say(pick(gripLines), 3000);
@@ -2142,6 +2703,18 @@
       lifted:(level, seconds) => lines.lifted(Number(level) || 0, Number(seconds) || 0),
       dropped:(maxLevel, hard, seconds) => lines.dropped(Number(maxLevel) || 0, !!hard, Number(seconds) || 0),
       setDown:kind => lines.setDown(kind),
+      cradleOver:app => lines.cradleOver(app),
+      cradleRock:rough => lines.cradleRock(!!rough),
+      // Flung out of her arms.
+      armsBetrayed:() => {
+        trustBreak();
+        noteCrime('thrown');
+        lines._dropSaid = Date.now();
+        runtime.cradle = null; runtime.cradleMood = null;
+        const t = trustLevel();
+        global.setTimeout(() => speech.say(pick(t >= .6 ? ['……你、你把我扔了？！', '……你抱着我，然后扔了我？'] : t >= .3 ? ['……我就知道。', '……又是这样。'] : ['……', '……我不该让你抱的。']), 4000), 300);
+        if (pokeMenu.grudge) global.setTimeout(() => pokeMenu.grudge.provoked('thrown'), 2500);
+      },
       knock:(level, quiet) => lines.knocked(runtime, level, quiet),
       // Came down from far too high: in a heap on the floor, face hidden.
       hardLanding:() => {
@@ -2171,6 +2744,12 @@
       patCount:n => { patCount = Math.max(patCount, Number(n) || 0); },
       pockets:json => { const p = global.ArthurDesktopCompanion.pockets; if (p) { p.load(json || '[]'); p.churn(); } },
       itemBack:how => global.ArthurDesktopCompanion.itemBack(how),
+      blanketGrabbed:() => global.ArthurDesktopCompanion.blanket && global.ArthurDesktopCompanion.blanket.grabbed(),
+      blanketLanded:(thrown, near) => global.ArthurDesktopCompanion.blanket && global.ArthurDesktopCompanion.blanket.dropped(!!thrown, !!near),
+      blanketOnto:how => global.ArthurDesktopCompanion.blanket && global.ArthurDesktopCompanion.blanket.onto(how),
+      blanketReached:() => global.ArthurDesktopCompanion.blanket && global.ArthurDesktopCompanion.blanket.reached(),
+      blanketUnreachable:() => global.ArthurDesktopCompanion.blanket && global.ArthurDesktopCompanion.blanket.unreachable(),
+      blanketDone:how => global.ArthurDesktopCompanion.blanket && global.ArthurDesktopCompanion.blanket.done(how),
       giftDone:how => { const g = global.ArthurDesktopCompanion.grudge; if (g && g.peace) g.peace.done(how); },
       giftRefused:() => { const g = global.ArthurDesktopCompanion.grudge; if (g && g.peace) g.peace.refused(); },
       itemDropped:() => global.ArthurDesktopCompanion.itemDropped(),

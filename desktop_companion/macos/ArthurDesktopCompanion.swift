@@ -155,6 +155,23 @@ private final class ItemPanel: NSPanel {
         view.addSubview(label)
         contentView = view
     }
+    /// A picture instead of an emoji (the blanket he left behind).
+    init(image: NSImage, size: NSSize) {
+        super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        ignoresMouseEvents = true
+        let view = GrabView(frame: NSRect(origin: .zero, size: size))
+        view.onGrab = { [weak self] in self?.onGrab?() }
+        let picture = NSImageView(frame: view.bounds)
+        picture.image = image
+        picture.imageScaling = .scaleProportionallyUpOrDown
+        view.addSubview(picture)
+        contentView = view
+    }
     func center(at point: NSPoint) {
         setFrameOrigin(NSPoint(x: point.x - frame.width / 2, y: point.y - frame.height / 2))
     }
@@ -337,6 +354,101 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
     private var edgeDares: [String: EdgeDare] = [:]
     /// Hopping down through the edge he stood on (he's drawn in front of windows).
     private var dropThroughY: CGFloat?
+    /// Carried in her arms (a two-finger drag), not dangled: no flinging, set down gently.
+    private var cradleDrag = false
+    private var gentleDescent = false
+    /// Cradled by a two-finger swipe: the swipe moves him (the cursor stays still, so he
+    /// soon isn't under it): watched screen-wide, not through his page.
+    private var cradleScroll = false
+    private var lastScrollAt: CFTimeInterval = 0
+    /// Her fingers are still on the trackpad (a swipe began and hasn't ended): she's
+    /// holding him still, not letting go.
+    private var scrollFingersDown = false
+    private var pendingScroll = CGPoint.zero
+    private var scrollSamples: [(t: CFTimeInterval, d: CGPoint)] = []
+    /// Carried about: which app's window is under him (its name only, never titles or
+    /// contents), so a curious Arthur can ask what it is.
+    private var lastOverApp: String?
+    /// Rocked back and forth in her arms: how hard, told to the page now and then.
+    private var rockSamples: [(t: CFTimeInterval, p: NSPoint)] = []
+    private var nextRockReport: CFTimeInterval = 0
+    private func readRocking(now: CFTimeInterval) {
+        let p = NSPoint(x: panel.frame.minX, y: panel.frame.minY)
+        rockSamples.append((now, p))
+        rockSamples.removeAll { now - $0.t > 2.0 }
+        guard now >= nextRockReport, rockSamples.count > 8 else { return }
+        // Back and forth along whichever axis moves most: count the turns that swung far enough.
+        let xs = rockSamples.map { $0.p.x }, ys = rockSamples.map { $0.p.y }
+        let span = { (v: [CGFloat]) in (v.max() ?? 0) - (v.min() ?? 0) }
+        let axis = span(xs) >= span(ys) ? xs : ys
+        var turns = 0, dir: CGFloat = 0, ext = axis[0], path: CGFloat = 0
+        for i in 1..<axis.count {
+            let d = axis[i] - axis[i - 1]
+            path += abs(d)
+            if d == 0 { continue }
+            let nd: CGFloat = d > 0 ? 1 : -1
+            if dir != 0 && nd != dir && abs(axis[i - 1] - ext) > 18 { turns += 1; ext = axis[i - 1] }
+            if dir == 0 { ext = axis[i - 1] }
+            dir = nd
+        }
+        guard turns >= 3 else { return }
+        let speed = path / CGFloat(max(0.2, now - rockSamples[0].t))
+        nextRockReport = now + 3
+        rockSamples.removeAll()
+        js("window.ArthurHost && ArthurHost.cradleRock && ArthurHost.cradleRock(\(speed > 900))")
+    }
+    private var nextOverCheck: CFTimeInterval = 0
+    private func reportWhatsUnder(now: CFTimeInterval) {
+        guard now >= nextOverCheck, let feet = feetOnScreen() else { return }
+        nextOverCheck = now + 1
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let me = Int(ProcessInfo.processInfo.processIdentifier)
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        var app = "desktop"
+        for w in info {
+            guard (w[kCGWindowLayer as String] as? Int) == 0, (w[kCGWindowOwnerPID as String] as? Int) != me,
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let y = b["Y"], let width = b["Width"], let height = b["Height"] else { continue }
+            let rect = CGRect(x: x, y: primaryHeight - y - height, width: width, height: height)
+            if rect.contains(NSPoint(x: feet.x, y: feet.y - 30)) { app = (w[kCGWindowOwnerName as String] as? String) ?? "unknown"; break }
+        }
+        guard app != lastOverApp else { return }
+        lastOverApp = app
+        let safe = app.replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "'", with: "")
+        js("window.ArthurHost && ArthurHost.cradleOver && ArthurHost.cradleOver('\(safe)')")
+    }
+    private var scrollMonitors: [Any] = []
+    private func watchScrolls() {
+        let handle: (NSEvent) -> Void = { [weak self] e in
+            guard let self, self.cradleScroll, case .dragging = self.motion else { return }
+            if !e.momentumPhase.isEmpty {
+                // A hard flick at the end of the swipe: she's thrown him out of her arms.
+                if e.momentumPhase == .began {
+                    let now = CACurrentMediaTime()
+                    let recent = self.scrollSamples.filter { now - $0.t < 0.1 }
+                    let sum = recent.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.d.x, y: $0.y + $1.d.y) }
+                    let v = CGPoint(x: sum.x / 0.1, y: sum.y / 0.1)
+                    if hypot(v.x, v.y) > 1600 { self.throwFromArms(vx: v.x, vyUp: v.y) }
+                }
+                return
+            }
+            // Follow her fingers, whichever way her scrolling is set.
+            let k: CGFloat = e.hasPreciseScrollingDeltas ? 1 : 8
+            let inverted = e.isDirectionInvertedFromDevice
+            let right = (inverted ? e.scrollingDeltaX : -e.scrollingDeltaX) * k
+            let down = (inverted ? e.scrollingDeltaY : -e.scrollingDeltaY) * k
+            self.pendingScroll.x += right
+            self.pendingScroll.y -= down
+            let now = CACurrentMediaTime()
+            self.scrollSamples.append((now, CGPoint(x: right, y: -down)))
+            self.scrollSamples.removeAll { now - $0.t > 0.15 }
+            self.lastScrollAt = CACurrentMediaTime()
+            if e.phase == .began || e.phase == .changed || e.phase == .stationary || e.phase == .mayBegin { self.scrollFingersDown = true }
+            if e.phase == .ended || e.phase == .cancelled { self.scrollFingersDown = false; self.lastScrollAt -= 0.3 }   // fingers lifted: down soon
+        }
+        if let g = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: handle) { scrollMonitors.append(g) }
+        if let l = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel, handler: { handle($0); return $0 }) { scrollMonitors.append(l) }
+    }
     private var dareBias: Double = 0
     private var dareBiasUntil: CFTimeInterval = 0
     /// Led on: he dared a real drop after his things, and she lifted them straight
@@ -402,6 +514,12 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         sittingUntil = nil
         startFalling(vx: dir * 70, vy: -280)
         return true
+    }
+
+    /// Down through the window edge he's on, no dice (storming off, he just goes).
+    private func dropThrough() {
+        if let l = ledge, l.kind == .window { dropThroughY = l.y }
+        startFalling(vx: 0, vy: -200)
     }
 
     /// Strolling about, he peered over an edge and decided against it.
@@ -500,6 +618,16 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
     private enum GiftState { case falling(vy: CGFloat), lying, held(start: NSPoint, moved: Bool) }
     private var giftPanel: ItemPanel?
     private var giftState: GiftState?
+    // The blanket he was wrapped in, left where he was when she picked him up.
+    // She can drag it or throw it (onto him, or near him);
+    // when the page says so, he goes and gets it; the page decides what then.
+    private enum BlanketState { case falling(vx: CGFloat, vy: CGFloat, thrown: Bool), lying(Ledge), held(start: NSPoint, moved: Bool), unreachable(Ledge, since: CFTimeInterval) }
+    private var blanketPanel: ItemPanel?
+    private var blanketState: BlanketState?
+    private var blanketFetch = false
+    private var blanketBorn: Date?
+    private var blanketTrail: [(CFTimeInterval, NSPoint)] = []
+    private var blanketNextPlan: CFTimeInterval = 0
     private var giftBorn: Date?
     /// Landing after she carried him (to say something about being put down).
     private var carried = false
@@ -562,6 +690,7 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
     }
 
     private func watchScreenshotKeys() {
+        watchScrolls()
         NSLog("Arthur screenshot keys: accessibility %@", AXIsProcessTrusted() ? "granted" : "not granted")
         screenshotMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self else { return }
@@ -903,36 +1032,10 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
             pageSeated = body["seated"] as? Bool ?? false
             if !settledOnce, feetCSS != nil { settledOnce = true; startFalling() }
         case "drag-begin":
-            let mouse = NSEvent.mouseLocation
-            dragSamples = [(CACurrentMediaTime(), mouse)]
-            carried = true
-            supportLost = false
-            setFloating(false)
-            cornerSeekUntil = nil
-            if stranded { rescuedPending = true }
-            excitedClimb = false
-            dragStartY = feetOnScreen()?.y ?? 0
-            dragStartX = feetOnScreen()?.x ?? 0
-            dragStartLedgeY = ledge?.y
-            dragMaxLift = 0
-            dragStartedAt = CACurrentMediaTime()
-            dragTrail = [(CACurrentMediaTime(), mouse)]
-            dragTurn = 0
-            dragMotionSaid = [:]
-            // Held for a moment and properly off the ground: he has something to say.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self, case .dragging = self.motion, self.liftNow() >= 0.6 else { return }
-                self.js("window.ArthurHost && ArthurHost.pickedUp && ArthurHost.pickedUp()")
-            }
-            hopping = false
-            hopAimY = nil
-            splatOnLanding = false
-            leaveWhenGrounded = false
-            pendingAwayUntil = nil
-            stopWalking(tellPage: false)
-            sittingUntil = nil
-            motion = .dragging(offset: NSPoint(x: mouse.x - panel.frame.minX, y: mouse.y - panel.frame.minY))
-            panel.ignoresMouseEvents = false
+            beginCarry(cradle: (body["cradle"] as? Bool) == true)
+        case "cradle-start":
+            // A two-finger swipe began on him: the shell's scroll monitor moves him from here.
+            switch motion { case .resting, .walking, .falling: beginCarry(cradle: true, scroll: true); default: break }
         case "log":
             NSLog("Arthur page: %@", (body["text"] as? String) ?? "")
         case "leave":
@@ -945,6 +1048,16 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
             if let json = body["json"] as? String, json.count < 8000 { prefs.pockets = json }
         case "gift-drop":
             if let icon = body["icon"] as? String { dropGift(icon: icon) }
+        case "blanket-drop":
+            if let png = body["png"] as? String {
+                dropBlanket(png: png, width: CGFloat((body["w"] as? Double) ?? 120), height: CGFloat((body["h"] as? Double) ?? 70))
+            }
+        case "blanket-fetch":
+            blanketFetch = (body["on"] as? Bool) == true
+            if blanketFetch, case .unreachable(let spot, _) = blanketState { blanketState = .lying(spot) }
+            if !blanketFetch, fleeing, itemPanel == nil, case .walking = motion { stopWalking() }
+        case "blanket-clear":
+            clearBlanket(nil)
         case "steal-start":
             if let icon = body["icon"] as? String { beginSteal(icon: icon) }
         case "chase-pause":
@@ -1152,6 +1265,129 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         }
     }
 
+    // MARK: - The blanket left behind
+
+    private func dropBlanket(png: String, width: CGFloat, height: CGFloat) {
+        guard let comma = png.firstIndex(of: ","),
+              let data = Data(base64Encoded: String(png[png.index(after: comma)...])),
+              let image = NSImage(data: data) else { return }
+        blanketPanel?.orderOut(nil)
+        let b = ItemPanel(image: image, size: NSSize(width: width * max(zoom, 0.4), height: height * max(zoom, 0.4)))
+        b.onGrab = { [weak self] in self?.grabBlanket() }
+        // It slides off him where he was.
+        let feet = feetOnScreen() ?? NSPoint(x: panel.frame.midX, y: panel.frame.minY)
+        b.center(at: NSPoint(x: feet.x, y: feet.y + bodyHeight() * 0.3))
+        b.ignoresMouseEvents = true
+        b.orderFrontRegardless()
+        blanketPanel = b
+        blanketState = .falling(vx: 0, vy: 0, thrown: false)
+        blanketBorn = Date()
+        blanketFetch = false
+    }
+
+    private func clearBlanket(_ how: String?) {
+        blanketPanel?.orderOut(nil)
+        blanketPanel = nil
+        blanketState = nil
+        blanketBorn = nil
+        blanketFetch = false
+        if let how { js("window.ArthurHost && ArthurHost.blanketDone && ArthurHost.blanketDone('\(how)')") }
+    }
+
+    private func grabBlanket() {
+        guard blanketPanel != nil else { return }
+        blanketState = .held(start: NSEvent.mouseLocation, moved: false)
+        blanketTrail = []
+        blanketPanel?.ignoresMouseEvents = true
+        if fleeing, itemPanel == nil, case .walking = motion { stopWalking() }   // on his way to it: wait
+        js("window.ArthurHost && ArthurHost.blanketGrabbed && ArthurHost.blanketGrabbed()")
+    }
+
+    private func updateBlanket(now: CFTimeInterval, dt: CGFloat) {
+        guard let b = blanketPanel, let state = blanketState else { return }
+        if let born = blanketBorn, Date().timeIntervalSince(born) > 6 * 3600 { clearBlanket("forgotten"); return }
+        let mouse = NSEvent.mouseLocation
+        switch state {
+        case .held(let start, var moved):
+            if hypot(mouse.x - start.x, mouse.y - start.y) > 6 { moved = true }
+            blanketTrail.append((now, mouse))
+            blanketTrail.removeAll { now - $0.0 > 0.12 }
+            if NSEvent.pressedMouseButtons & 1 == 0 {
+                if moved && isOverArthur(mouse) {
+                    clearBlanket(nil)
+                    js("window.ArthurHost && ArthurHost.blanketOnto && ArthurHost.blanketOnto('dropped')")
+                    return
+                }
+                // Let go: it flies on with the hand's speed (a throw) or just falls.
+                var vx: CGFloat = 0, vy: CGFloat = 0
+                if let first = blanketTrail.first, let last = blanketTrail.last, last.0 - first.0 > 0.01 {
+                    let t = CGFloat(last.0 - first.0)
+                    vx = (last.1.x - first.1.x) / t
+                    vy = -(last.1.y - first.1.y) / t            // falling speed is downwards
+                }
+                let thrown = moved && hypot(vx, vy) > 700
+                if !thrown { vx = 0; vy = max(vy, 0) }
+                blanketState = .falling(vx: min(max(vx, -2600), 2600), vy: min(max(vy, -2600), 2600), thrown: thrown)
+                b.ignoresMouseEvents = true
+            } else {
+                if moved { b.center(at: NSPoint(x: mouse.x, y: mouse.y + 6)) }
+                blanketState = .held(start: start, moved: moved)
+            }
+        case .falling(var vx, var vy, let thrown):
+            vy += Self.gravity * dt
+            vx *= pow(0.55, dt)                              // cloth: the air slows it
+            var x = b.foot.x + vx * dt
+            let nextY = b.foot.y - vy * dt
+            let screens = NSScreen.screens.map(\.frame)
+            let minX = screens.map(\.minX).min() ?? 0, maxX = screens.map(\.maxX).max() ?? 2000
+            if x < minX + b.frame.width / 2 { x = minX + b.frame.width / 2; vx = -vx * 0.35 }
+            if x > maxX - b.frame.width / 2 { x = maxX - b.frame.width / 2; vx = -vx * 0.35 }
+            // Thrown: it can land on him on the way.
+            if thrown, isOverArthur(NSPoint(x: x, y: nextY + b.frame.height * 0.5)) {
+                clearBlanket(nil)
+                js("window.ArthurHost && ArthurHost.blanketOnto && ArthurHost.blanketOnto('thrown')")
+                return
+            }
+            if let target = ledge(below: b.foot.y, at: x), nextY <= target.y {
+                b.rest(foot: NSPoint(x: x, y: target.y))
+                blanketState = .lying(target)
+                b.ignoresMouseEvents = false
+                blanketNextPlan = now + 0.8
+                var near = false
+                if let feet = feetOnScreen() { near = abs(x - feet.x) < bodyHeight() * 1.3 && abs(target.y - feet.y) < bodyHeight() * 0.6 }
+                js("window.ArthurHost && ArthurHost.blanketLanded && ArthurHost.blanketLanded(\(thrown), \(near))")
+            } else if nextY < (screens.map(\.minY).min() ?? 0) - 100 {
+                clearBlanket("lost")
+            } else {
+                b.rest(foot: NSPoint(x: x, y: nextY))
+                blanketState = .falling(vx: vx, vy: vy, thrown: thrown)
+            }
+        case .lying(let spot):
+            if ledges().first(where: { abs($0.y - spot.y) < 2 && $0.minX <= b.foot.x && b.foot.x <= $0.maxX }) == nil {
+                blanketState = .falling(vx: 0, vy: 0, thrown: false); b.ignoresMouseEvents = true; break
+            }
+            // His stolen things come first.
+            if blanketFetch, itemPanel == nil, !chasePaused, now >= blanketNextPlan {
+                blanketNextPlan = now + 0.6
+                planFetch(item: b, spot: spot, reached: { [weak self] in
+                    guard let self else { return }
+                    self.blanketFetch = false
+                    self.js("window.ArthurHost && ArthurHost.blanketReached && ArthurHost.blanketReached()")
+                }, unreachable: { [weak self] in
+                    guard let self else { return }
+                    self.blanketState = .unreachable(spot, since: now)
+                    self.js("window.ArthurHost && ArthurHost.blanketUnreachable && ArthurHost.blanketUnreachable()")
+                })
+            }
+        case .unreachable(let spot, let since):
+            if ledges().first(where: { abs($0.y - spot.y) < 2 && $0.minX <= b.foot.x && b.foot.x <= $0.maxX }) == nil {
+                blanketState = .falling(vx: 0, vy: 0, thrown: false); b.ignoresMouseEvents = true
+            } else if now - since > 20 {
+                blanketState = .lying(spot)                  // the windows may have moved: try again
+            }
+        }
+    }
+
     /// She picks the dropped thing up again.
     private func grabItem() {
         guard itemPanel != nil else { return }
@@ -1296,12 +1532,14 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
     }
 
     /// It's lying somewhere: go and get it, if he can.
-    private func planFetch(item: ItemPanel, spot: Ledge) {
+    /// Walk, drop or climb towards a thing lying somewhere. By default it's his stolen
+    /// thing; `reached` / `unreachable` let the blanket use the same legs.
+    private func planFetch(item: ItemPanel, spot: Ledge, reached: (() -> Void)? = nil, unreachable: (() -> Void)? = nil) {
         guard case .resting = motion, let ledge, let feet = feetOnScreen() else { return }
         let itemX = item.foot.x
         if abs(ledge.y - spot.y) < 3 && ledge.minX <= itemX && itemX <= ledge.maxX {
             // Same surface: walk over and pick it up.
-            if abs(itemX - feet.x) < 28 { finishItem("fetched"); return }
+            if abs(itemX - feet.x) < 28 { if let reached { reached() } else { finishItem("fetched") }; return }
             let dir: CGFloat = itemX > feet.x ? 1 : -1
             js("window.ArthurHost ? ArthurHost.walk(\(dir > 0 ? 1 : -1)) : false") { [weak self] ok in
                 guard let self, (ok as? Bool) == true, case .resting = self.motion else { return }
@@ -1357,6 +1595,8 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
                     self.fleeing = true
                     self.motion = .walking(targetX: itemX, direction: dir)
                 }
+            } else if let unreachable {
+                unreachable()
             } else {
                 itemState = .unreachable(spot)
                 js("window.ArthurHost && ArthurHost.itemUnreachable && ArthurHost.itemUnreachable()")
@@ -1441,6 +1681,59 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
     }
 
     /// Let go of him: he keeps the speed the mouse was moving at.
+    /// She has him: by the mouse (dragged / dangled, or a two-finger drag: cradled),
+    /// or by a two-finger swipe (cradled, moved by the swipe, not the cursor).
+    private func beginCarry(cradle: Bool, scroll: Bool = false) {
+        let mouse = NSEvent.mouseLocation
+        gentleDescent = false
+        dragSamples = [(CACurrentMediaTime(), mouse)]
+        carried = true
+        supportLost = false
+        setFloating(false)
+        cornerSeekUntil = nil
+        if stranded { rescuedPending = true }
+        excitedClimb = false
+        dragStartY = feetOnScreen()?.y ?? 0
+        dragStartX = feetOnScreen()?.x ?? 0
+        dragStartLedgeY = ledge?.y
+        dragMaxLift = 0
+        dragStartedAt = CACurrentMediaTime()
+        dragTrail = [(CACurrentMediaTime(), mouse)]
+        dragTurn = 0
+        dragMotionSaid = [:]
+        // Held for a moment and properly off the ground: he has something to say.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, case .dragging = self.motion, self.liftNow() >= 0.6 else { return }
+            self.js("window.ArthurHost && ArthurHost.pickedUp && ArthurHost.pickedUp()")
+        }
+        hopping = false
+        hopAimY = nil
+        splatOnLanding = false
+        leaveWhenGrounded = false
+        pendingAwayUntil = nil
+        stopWalking(tellPage: false)
+        sittingUntil = nil
+        motion = .dragging(offset: NSPoint(x: mouse.x - panel.frame.minX, y: mouse.y - panel.frame.minY))
+        panel.ignoresMouseEvents = false
+        cradleDrag = cradle
+        cradleScroll = scroll
+        scrollFingersDown = scroll                 // the swipe that started this is still going
+        lastScrollAt = CACurrentMediaTime()
+        lastOverApp = nil; nextOverCheck = 0
+        rockSamples.removeAll(); nextRockReport = 0
+    }
+
+    /// Out of her arms with a fling: he goes flying, and he'll remember it.
+    private func throwFromArms(vx: CGFloat, vyUp: CGFloat) {
+        let cap: CGFloat = 2600
+        let x = max(-cap, min(cap, vx)), y = max(-cap, min(cap, vyUp))
+        cradleScroll = false; cradleDrag = false; gentleDescent = false; pendingScroll = .zero
+        flungHard = true
+        js("window.ArthurHost && ArthurHost.armsBetrayed && ArthurHost.armsBetrayed()")
+        js("window.ArthurHost && ArthurHost.dropped && ArthurHost.dropped(\(String(format: "%.2f", dragMaxLift)), true, \(String(format: "%.2f", CACurrentMediaTime() - dragStartedAt)))")
+        startFalling(vx: x, vy: -y)
+    }
+
     private func releaseDrag() {
         var vx: CGFloat = 0, vy: CGFloat = 0
         if let first = dragSamples.first, let last = dragSamples.last, last.t - first.t > 0.012 {
@@ -1450,6 +1743,11 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         }
         let cap: CGFloat = 2600
         vx = max(-cap, min(cap, vx)); vy = max(-cap, min(cap, vy))
+        if cradleDrag {
+            // A right-button carry: let go gently, or flung out of her arms.
+            if hypot(vx, vy) > 1100 { dragSamples = []; throwFromArms(vx: vx, vyUp: -vy); return }
+            vx = 0; vy = 0; gentleDescent = true
+        }
         flungHard = hypot(vx, vy) > 1100
         dragSamples = []
         js("window.ArthurHost && ArthurHost.dropped && ArthurHost.dropped(\(String(format: "%.2f", dragMaxLift)), \(flungHard), \(String(format: "%.2f", CACurrentMediaTime() - dragStartedAt)))")
@@ -1487,6 +1785,9 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         fallPeakY = target.y
         if fell > 40 { NSLog("Arthur fell %.0f (body %.0f)%@", fell, bodyHeight(), supportLost ? " (floated)" : "") }
         let floated = supportLost
+        let gentle = gentleDescent
+        gentleDescent = false
+        cradleDrag = false
         if braveDropPending {
             braveDropPending = false
             if !floated, fell > bodyHeight() * 1.5, itemState != nil { braveLandedAt = CACurrentMediaTime() }
@@ -1495,6 +1796,9 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         setFloating(false)
         if floated {
             // Drifted down under his umbrella: no harm done.
+        } else if gentle {
+            splatOnLanding = false; flungHard = false
+            js("window.ArthurHost && ArthurHost.setDown && ArthurHost.setDown('gentle')")
         } else if splatOnLanding {
             splatOnLanding = false
             flungHard = false
@@ -1511,7 +1815,7 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         }
         carried = false
         if leaveWhenGrounded {
-            if target.kind == .floor { leaveWhenGrounded = false; beginExit() } else { startFalling() }
+            if target.kind != .window { leaveWhenGrounded = false; beginExit() } else { dropThrough() }
         }
     }
 
@@ -1522,7 +1826,10 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         sittingUntil = nil
         if pageSeated { sit(false) }
         stopWalking(tellPage: true)
-        if ledge?.kind == .floor { beginExit() } else { leaveWhenGrounded = true; startFalling() }
+        // Off he goes along the floor or the Dock; up on a window he drops down through
+        // it first (straight down from where he stands would land him on it again).
+        if ledge == nil || ledge?.kind != .window { if ledge == nil { leaveWhenGrounded = true; startFalling() } else { beginExit() } }
+        else { leaveWhenGrounded = true; dropThrough() }
     }
 
     private func screenUnderFeet() -> NSRect {
@@ -1812,12 +2119,38 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
         }
         updateItem(now: now, dt: dt)
         updateGift(dt: dt)
+        updateBlanket(now: now, dt: dt)
         guard panel.isVisible else { return }
         let mouse = NSEvent.mouseLocation
 
         switch motion {
         case .dragging(let offset):
-            if NSEvent.pressedMouseButtons & 1 == 0 {
+            if cradleScroll {
+                // Carried by her swipe: moved by it; half a second without one and she sets him down.
+                // Set down once her fingers leave the trackpad (or, with no phases at all, a
+                // mouse wheel, half a second after it stops); never left hanging past 12 s.
+                let idle = now - lastScrollAt
+                if (!scrollFingersDown && idle > 0.45) || idle > 12 {
+                    cradleScroll = false; scrollFingersDown = false; pendingScroll = .zero; releaseDrag(); break
+                }
+                var origin = NSPoint(x: panel.frame.minX + pendingScroll.x, y: panel.frame.minY + pendingScroll.y)
+                pendingScroll = .zero
+                if let head = screenRects().map(\.maxY).max(), let feet = feetOnScreen(),
+                   let ceiling = NSScreen.screens.first(where: { $0.frame.minX <= feet.x && feet.x <= $0.frame.maxX })?.visibleFrame.maxY {
+                    origin.y = min(origin.y, ceiling - (head - panel.frame.minY))
+                }
+                panel.setFrameOrigin(origin)
+                reportWhatsUnder(now: now)
+                readRocking(now: now)
+                let lift = liftNow()
+                dragMaxLift = max(dragMaxLift, lift)
+                if now >= nextLiftReport {
+                    nextLiftReport = now + 0.25
+                    js("window.ArthurHost && ArthurHost.lifted && ArthurHost.lifted(\(String(format: "%.2f", lift)), \(String(format: "%.1f", now - dragStartedAt)))")
+                }
+                break
+            }
+            if NSEvent.pressedMouseButtons & (cradleDrag ? 2 : 1) == 0 {
                 releaseDrag()   // released outside the page, e.g. after a fast flick
             } else {
                 var origin = NSPoint(x: mouse.x - offset.x, y: mouse.y - offset.y)
@@ -1827,6 +2160,7 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
                     origin.y = min(origin.y, ceiling - (head - panel.frame.minY))
                 }
                 panel.setFrameOrigin(origin)
+                if cradleDrag { reportWhatsUnder(now: now); readRocking(now: now) }
                 let lift = liftNow()
                 dragMaxLift = max(dragMaxLift, lift)
                 if now >= nextLiftReport {
@@ -1842,6 +2176,7 @@ final class ArthurDesktopCompanionApp: NSObject, NSApplicationDelegate, WKNaviga
             guard let feet = feetOnScreen() else { break }
             vy += Self.gravity * dt
             if supportLost && vy > 240 { vy = 240; setFloating(true) }   // umbrella up
+            if gentleDescent && vy > 300 { vy = 300 }                    // lowered in her arms
             if !hopping { vx *= max(0, 1 - 0.35 * dt) }   // a little air drag (not on his own jumps)
             var nextX = feet.x + vx * dt
             let nextY = feet.y - vy * dt

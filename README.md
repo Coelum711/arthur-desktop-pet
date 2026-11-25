@@ -16,6 +16,11 @@ a blanket, drinks tea, embroiders, and has a great deal to say about all of it
   (`arthur-desktop-rig-v3.svg`) animated by `arthur-life-runtime-v2.js` and
   `arthur-desktop-runtime-v3.js`; `live-client.js` wires in the app and all the
   lines; poke menu, idle chatter, fairy friends and pockets in their own files.
+  `arthur-gpu-renderer-v2.js` draws him with WebGL instead of having the browser
+  repaint a thousand vector parts every frame (each part is rasterised once and
+  reused): roughly a quarter less CPU. The SVG stays the model the runtime moves;
+  without WebGL2, or if frames keep failing, the real SVG simply comes back.
+  Add `?svg=1` to the page URL to compare.
 - `desktop_companion/server.py` + `status_sources.py` — a small local server that
   serves the page and a *coarse* status of the "real" Arthur (asleep or awake,
   at home or out, rough weather...), read from a separately running Arthur

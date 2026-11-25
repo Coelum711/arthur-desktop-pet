@@ -65,7 +65,7 @@ function startServer() {
     const url = new URL(req.url, 'http://127.0.0.1');
     const send = (status, type, body, csp = true) => {
       const headers = {'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'};
-      if (csp) headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'";
+      if (csp) headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'";
       res.writeHead(status, headers); res.end(body);
     };
     if (url.pathname === '/api/companion-status') {
@@ -118,6 +118,7 @@ let carried = false, dragStartY = 0, dragStartX = 0, dragStartLedgeY = null, dra
 let dragTrail = [], nextDragMotionRead = 0, dragTurn = 0, dragMotionSaid = {};
 let hopping = false, fallPeakY = 0, splatOnLanding = false, hopAimY = null, noHopsUntil = 0, peekUntil = 0, edgeFearOn = false;
 let dropThroughY = null;
+let cradleDrag = false, gentleDescent = false;   // carried in her arms: set down gently, never flung
 let rideFrame = null, rideId = null, rideLevel = 0, rideSpeed = 0, rideStillSince = 0;                // hopping down through the edge he stood on (he's drawn in front of windows)
 let leaveWhenGrounded = false, pendingAwayUntil = null;
 let nextWanderAt = nowS() + 20;
@@ -302,8 +303,14 @@ function onHostMessage(body) {
       pageCanWander = !!body.canWander; pageCanSit = !!body.canSit; pageSeated = !!body.seated;
       if (!settledOnce && feetCSS) { settledOnce = true; startFalling(); }
       break;
+    case 'cradle-start':
+      // Swipe-carrying needs screen-wide scroll events Electron doesn't give: decline,
+      // so the page drops its cradle pose (a right-button drag still carries him).
+      host('landed()');
+      break;
     case 'drag-begin': {
       const m = cursor(), t = nowS();
+      cradleDrag = !!body.cradle; gentleDescent = false;
       mouseDown = true; mouseDownAt = t; mouseFromPet = true;
       dragSamples = [{t, p: m}];
       carried = true; supportLost = false; setFloating(false); cornerSeekUntil = null;
@@ -662,6 +669,11 @@ function releaseDrag() {
     vy = (last.p.y - first.p.y) / sp;      // y-down: already "downward speed"
   }
   vx = clamp(vx, -2600, 2600); vy = clamp(vy, -2600, 2600);
+  if (cradleDrag) {
+    // Out of her arms: gently, or flung (and he remembers that).
+    if (Math.hypot(vx, vy) > 1100) { cradleDrag = false; host('armsBetrayed()'); }
+    else { vx = 0; vy = 0; gentleDescent = true; }
+  }
   flungHard = Math.hypot(vx, vy) > 1100;
   dragSamples = [];
   host(`dropped(${dragMaxLift.toFixed(2)}, ${flungHard}, ${(nowS() - dragStartedAt).toFixed(2)})`);
@@ -682,9 +694,12 @@ function land(target, x) {
   const fell = target.y - fallPeakY;
   fallPeakY = target.y;
   const floated = supportLost;
+  const gentle = gentleDescent;
+  gentleDescent = false; cradleDrag = false;
   supportLost = false;
   setFloating(false);
   if (floated) { /* drifted down under his umbrella */ }
+  else if (gentle) { splatOnLanding = false; flungHard = false; host("setDown('gentle')"); }
   else if (splatOnLanding) { splatOnLanding = false; flungHard = false; host("knock('splat')"); }
   else if (fell > bodyHeight() * 2.8) { flungHard = false; host('hardLanding()'); }
   else if (flungHard) { flungHard = false; host('thrown()'); }
@@ -930,6 +945,7 @@ function tick() {
       let {vx, vy} = motion;
       vy += GRAVITY * dt;
       if (supportLost && vy > 240) { vy = 240; setFloating(true); }
+      if (gentleDescent && vy > 300) vy = 300;           // lowered from her arms
       if (!hopping) vx *= Math.max(0, 1 - 0.35 * dt);
       let nextX = feet.x + vx * dt;
       const nextY = feet.y + vy * dt;

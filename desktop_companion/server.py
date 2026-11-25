@@ -514,7 +514,7 @@ def _handler(application: CompanionApplication):
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'",
+                "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'",
             )
             self.end_headers()
 

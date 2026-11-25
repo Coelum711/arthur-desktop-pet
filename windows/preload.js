@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('webkit', {
   messageHandlers: {arthurHost: {postMessage: message => ipcRenderer.send('host', message)}}
 });
 
-const button = (down, e) => { if (e.button === 0 || e.type === 'pointercancel') ipcRenderer.send('mouse', down); };
+// Left button, or right (a two-finger click/drag: a hug, or carrying him in her arms).
+const button = (down, e) => { if (e.button === 0 || e.button === 2 || e.type === 'pointercancel') ipcRenderer.send('mouse', down); };
 window.addEventListener('pointerdown', e => button(true, e), true);
 window.addEventListener('pointerup', e => button(false, e), true);
 window.addEventListener('pointercancel', e => button(false, e), true);

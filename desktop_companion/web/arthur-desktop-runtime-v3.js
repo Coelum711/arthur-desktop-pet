@@ -552,11 +552,14 @@
         ['cry', until(this.cryUntil) || until(this.lyingTearsUntil)],
         ['dragmotion', until(this.strollUntil) || until(this.scrapeUntil)],
         ['cheek', this.cheekLean],
-        ['acts', this.lookAway || this.handsHidden || this.handReach || this.lookHand || this.slumpPeek || until(this.glareUntil)],
+        ['acts', this.lookAway || this.handsHidden || this.handReach || this.lookHand || this.slumpPeek || until(this.glareUntil) || until(this.hugUntil) || this.cradle],
         ['beat', this.antic && (this.antic.beatNow || (this.antic.beatAt && now >= this.antic.beatAt))],
         ['parts', this.selfFix || this.earTwitch || this.ahogeSpring || this.hatTilt || until(this.browRuffleUntil) || until(this.collarPleasedUntil) || this._browFixDue],
         ['tailaway', this.tailAwayUntil && now < this.tailAwayUntil + 700],
-        ['tailplay', this._tailTease || until(this.tailFluffUntil) || until(this.tailPuffUntil) || until(this.tailNoticedUntil)]
+        ['tailplay', this._tailTease || until(this.tailFluffUntil) || until(this.tailPuffUntil) || until(this.tailNoticedUntil)],
+        // A long, slow antic (dozing, reading, tea, embroidery) still moves the whole time:
+        // never frozen, just fewer frames (see _render).
+        ['lull', this.antic && this.antic.long]
       ];
       const hit = checks.find(c => c[1]);
       this.frameReason = hit ? hit[0] : 'calm';            // for debugging from the console
@@ -914,6 +917,23 @@
       return (this._tuckTipEl = g);
     }
 
+    _angelHalo() {
+      if (this._haloEl !== undefined) return this._haloEl;
+      const head = this.q('motion-head-root');
+      if (!head || !this.svg.ownerDocument) return (this._haloEl = null);
+      const NS = 'http://www.w3.org/2000/svg';
+      const g = this.svg.ownerDocument.createElementNS(NS, 'g');
+      g.setAttribute('id', 'fx-angel-halo');
+      g.setAttribute('display', 'none');
+      g.setAttribute('pointer-events', 'none');
+      const [cx, cy] = this.HALO_AT || [386, -470];
+      g.innerHTML = `<ellipse cx="${cx}" cy="${cy}" rx="150" ry="36" fill="none" stroke="#fff3b8" stroke-width="30" opacity=".45"/>`
+        + `<ellipse cx="${cx}" cy="${cy}" rx="150" ry="36" fill="none" stroke="#e9c75f" stroke-width="14"/>`
+        + `<ellipse cx="${cx}" cy="${cy - 3}" rx="146" ry="32" fill="none" stroke="#fff6cf" stroke-width="4"/>`;
+      head.appendChild(g);
+      return (this._haloEl = g);
+    }
+
     _handEdge(on) {
       if (!this.svg || !this.svg.ownerDocument) return;
       if (on && !this.q('fx-hand-edge')) {
@@ -1021,6 +1041,134 @@
 
     _renderActs(now) {
       const ease = (a, total, inMs=260, outMs=320) => clamp(Math.min((now - a.start) / inMs, (a.until - now) / outMs), 0, 1);
+      const show = (id, on) => this._display(this.q(id), on);
+      // How he takes being held, as a face: content (eyes shut, a small smile), shy (eyes
+      // away, very pink, a hand half over his mouth) or cross with it (brows down, a pout,
+      // arms folded, the angry mark). side = which way his head tips.
+      const heldFace = (style, side, k) => {
+        if (k <= .3) return;
+        if (style !== 'content' && style !== 'doze') {
+          // Eyes-open moods: undo whatever a sleepier mood left (shut eyes, Zz).
+          show('expression-closed-eyes', false); show('motion-eye-left', true); show('motion-eye-right', true);
+          if (this._dozeZz) { this._dozeZz = false; show('fx-zz', false); }
+        }
+        if (style === 'squirm') {
+          // Had enough: wriggling to be put down. Not frightened, just done.
+          const t = now / 1000;
+          if (this.attention) { this.attention.targetX = side * 14; this.attention.targetY = 6; this.attention.strength = 1; }
+          this._appendTransform(this.q('character-motion-root'), `rotate(${(Math.sin(t * 7) * 3).toFixed(2)}deg)`);
+          this._appendTransform(this.q('motion-hand-left'), `translate(${(-30 * k).toFixed(1)}px,${(-40 * k + Math.sin(t * 7) * 8).toFixed(1)}px)`);
+          this._appendTransform(this.q('motion-hand-right'), `translate(${(30 * k).toFixed(1)}px,${(-40 * k + Math.sin(t * 7 + 1.4) * 8).toFixed(1)}px)`);
+          show('fx-blush-deep', true);
+          if (this.viseme === 'idle') { this._hideAllMouths(); show('g-mouth-pout', true); }
+          this._heldFace = true;
+          return;
+        }
+        if (style === 'doze') {
+          show('motion-eye-left', false); show('motion-eye-right', false); show('expression-closed-eyes', true);
+          show('fx-zz', true);
+          this._appendTransform(this.q('motion-head-root'), `rotate(${(side * 10 * k).toFixed(2)}deg) translateY(${(6 * k).toFixed(1)}px)`);
+          this._heldFace = true; this._dozeZz = true;
+          return;
+        }
+        if (style === 'cool') {
+          // He lets her, but there's nothing in it: eyes wandering, no colour, no smile.
+          const t = now / 1000;
+          if (this.attention) { this.attention.targetX = side * 12 + Math.sin(t * .4) * 6; this.attention.targetY = 6; this.attention.strength = 1; }
+          this._appendTransform(this.q('motion-head-root'), `rotate(${(side * 3).toFixed(2)}deg)`);
+          this._heldFace = true;
+          return;
+        }
+        if (style === 'curious') {
+          // Settled in her arms like a kitten, looking about at everything.
+          const t = now / 1000;
+          if (this.attention) { this.attention.targetX = Math.sin(t * .9) * 18; this.attention.targetY = Math.cos(t * .7) * 8; this.attention.strength = 1; }
+          this._appendTransform(this.q('motion-head-root'), `rotate(${(side * 4 + Math.sin(t * .9) * 5).toFixed(2)}deg)`);
+          if (this.viseme === 'idle' && Math.sin(t * .5) > .7) { this._hideAllMouths(); show('g-mouth-open-small', true); }
+          this._heldFace = true;
+          return;
+        }
+        this._appendTransform(this.q('motion-head-root'), `rotate(${(side * 7 * k).toFixed(2)}deg)`);
+        show('fx-blush-deep', true);
+        if (style === 'content') {
+          show('motion-eye-left', false); show('motion-eye-right', false); show('expression-closed-eyes', true);
+          if (this.viseme === 'idle') { this._hideAllMouths(); show('g-mouth-smile', true); }
+        } else if (style === 'shy') {
+          if (this.attention) { this.attention.targetX = side * 16; this.attention.targetY = 4; this.attention.strength = 1; }
+          this._appendTransform(this.q(side > 0 ? 'motion-hand-left' : 'motion-hand-right'), `translate(${(side * 90 * k).toFixed(1)}px,${(-200 * k).toFixed(1)}px)`);
+        } else {
+          show('desktop-angry-mark', true);
+          this._appendTransform(this.q('motion-brow-left'), 'translate(6px,4px) rotate(14deg)');
+          this._appendTransform(this.q('motion-brow-right'), 'translate(-6px,4px) rotate(-14deg)');
+          if (this.viseme === 'idle') { this._hideAllMouths(); show('g-mouth-pout', true); }
+          this._appendTransform(this.q('motion-hand-left'), `translate(${(85 * k).toFixed(1)}px,${(-50 * k).toFixed(1)}px)`);
+          this._appendTransform(this.q('motion-hand-right'), `translate(${(-85 * k).toFixed(1)}px,${(-40 * k).toFixed(1)}px)`);
+        }
+        this._heldFace = true;
+      };
+      const clearHeldFace = () => {
+        if (!this._heldFace) return;
+        this._heldFace = false;
+        if (this._dozeZz) { this._dozeZz = false; show('fx-zz', false); }
+        show('expression-closed-eyes', false); show('motion-eye-left', true); show('motion-eye-right', true); show('fx-blush-deep', false);
+        show('desktop-angry-mark', !!this.sulk);
+        if (this.attention) { this.attention.targetX = this.attention.targetY = 0; this.attention.strength = 0; }
+        if (typeof this._applyFace === 'function') this._applyFace();
+      };
+      // Hugged: a squeeze, his head tips one way, and he takes it his way.
+      const hugging = this.hugUntil && now < this.hugUntil;
+      if (hugging) {
+        const k = smoothstep(clamp(Math.min((now - this.hugStart) / 220, (this.hugUntil - now) / 400), 0, 1));
+        this._appendTransform(this.q('character-motion-root'), `translateY(${(5 * k).toFixed(1)}px) scale(${(1 - .05 * k).toFixed(3)},${(1 - .03 * k).toFixed(3)})`);
+        if (!['cross', 'squirm'].includes(this.hugStyle)) {
+          this._appendTransform(this.q('motion-hand-left'), `translate(${(40 * k).toFixed(1)}px,${(-10 * k).toFixed(1)}px)`);
+          this._appendTransform(this.q('motion-hand-right'), `translate(${(-40 * k).toFixed(1)}px,${(-10 * k).toFixed(1)}px)`);
+        }
+        this._appendTransform(this.q('tail-root'), `rotate(${(12 * k).toFixed(1)}deg)`);
+        heldFace(this.hugStyle || 'content', this.hugSide || 1, k);
+        this._hugEyes = true;
+      } else if (this._hugEyes) {
+        this._hugEyes = false; this.hugUntil = 0;
+        clearHeldFace();
+      }
+      // Cradled in her arms: knees up, leaning back a little, hands together, eyes shut.
+      if (this.cradle && this.cradleMood === 'panic') {
+        // He doesn't trust her arms: kicking, pushing her off, eyes screwed shut.
+        const k = smoothstep(clamp((now - this.cradle.start) / 250, 0, 1));
+        const s1 = Math.sin(now / 1000 * 13), s2 = Math.sin(now / 1000 * 13 + 1.7);
+        this._appendTransform(this.q('character-motion-root'), `rotate(${(4 * s1 * k).toFixed(2)}deg) translateX(${(3 * s2 * k).toFixed(1)}px)`);
+        this._legTransform('left', 28 * s1 * k, -20 * k);
+        this._legTransform('right', -28 * s2 * k, -20 * k);
+        this._appendTransform(this.q('motion-hand-left'), `translate(${(-40 * k).toFixed(1)}px,${(-60 * k + 12 * s2).toFixed(1)}px)`);
+        this._appendTransform(this.q('motion-hand-right'), `translate(${(40 * k).toFixed(1)}px,${(-60 * k + 12 * s1).toFixed(1)}px)`);
+        if (this.state !== 'sleep') this.squeezeUntil = Math.max(this.squeezeUntil || 0, now + 150);
+        this._cradlePanic = true;
+      } else if (this.cradle) {
+        const tense = this.cradleMood === 'tense';
+        const k = smoothstep(clamp((now - this.cradle.start) / 350, 0, 1));
+        const side = this.cradle.side || -1;
+        const sway = Math.sin(now / 1000 * 1.4) * 1.5 * k + (tense ? Math.sin(now / 1000 * 22) * .8 * k : 0);
+        this._appendTransform(this.q('character-motion-root'), `rotate(${(side * 9 * k + sway).toFixed(2)}deg) translateY(${(-6 * k).toFixed(1)}px)`);
+        if (this.cradle.style === 'squirm') {
+          const t = now / 1000;
+          this._legTransform('left', -10 * k + Math.sin(t * 8) * 16 * k, -30 * k);
+          this._legTransform('right', 10 * k + Math.sin(t * 8 + 1.6) * 16 * k, -30 * k);
+        } else {
+          this._legTransform('left', -18 * k, -46 * k);
+          this._legTransform('right', 18 * k, -46 * k);
+        }
+        if (tense || ['content', 'curious', 'cool', 'doze'].includes(this.cradle.style || 'content') || this.state === 'sleep') {   // hands together on his chest
+          this._appendTransform(this.q('motion-hand-left'), `translate(${(70 * k).toFixed(1)}px,${(-30 * k).toFixed(1)}px)`);
+          this._appendTransform(this.q('motion-hand-right'), `translate(${(-70 * k).toFixed(1)}px,${(-30 * k).toFixed(1)}px)`);
+        }
+        this._appendTransform(this.q('tail-root'), `rotate(${(25 * k).toFixed(1)}deg)`);
+        if (this.state !== 'sleep' && !tense) { heldFace(this.cradle.style || 'content', side, k); this._cradleEyes = true; }
+      } else if (this._cradleEyes || this._cradlePanic) {
+        this._cradlePanic = false;
+        this._cradleEyes = false;
+        clearHeldFace();
+        this._legTransform('left', 0, 0); this._legTransform('right', 0, 0);
+      }
       const la = this.lookAway;
       if (la) {
         if (now >= la.until) { this.lookAway = null; if (this.attention) { this.attention.targetX = this.attention.targetY = 0; this.attention.strength = 0; } }
@@ -1121,6 +1269,7 @@
         this._tailStroke = null;
         this.tailPuffUntil = now + 2000;
         if (typeof this.startleFromPoke === 'function') this.startleFromPoke({duration:900});
+        this.squeezeUntil = Math.max(this.squeezeUntil || 0, now + 1000);   // fur the wrong way: a >< wince
         if (this.onTailStroke) this.onTailStroke(false);
       }
     }
@@ -1351,10 +1500,48 @@
       this.svg.addEventListener('pointerup', up);
       this.svg.addEventListener('pointercancel', up);
       this.svg.addEventListener('pointerleave', leave);
+      // A two-finger click is a hug, not WebKit's 'Reload' menu.
+      this.svg.addEventListener('contextmenu', event => event.preventDefault());
+      // A two-finger swipe that starts on him: she picks him up in her arms.
+      this.svg.addEventListener('wheel', event => this._wheel(event), {passive:false});
+    }
+
+    _wheel(event) {
+      if (event.preventDefault) event.preventDefault();
+      if (!this.host || this.held || this.cradle || this.hostCarry || this.hostLeap) return;
+      this._wheelSum = (this._wheelSum || 0) + Math.abs(event.deltaX || 0) + Math.abs(event.deltaY || 0);
+      if (this._wheelSum < 8) return;
+      this._wheelSum = 0;
+      this.startCradle();
+      this.host.post({type:'cradle-start'});
+    }
+
+    // Held in her arms (a two-finger swipe or right-button drag): not dangled.
+    startCradle() {
+      this.cradle = {start:nowMs(), side:Math.random() < .5 ? -1 : 1, style:'content'};
+      this.hostCarry = true;
+      this.treadmill = null; this.seatTarget = 0; this.seat = 0;
+      if (this.antic && this.antic.long && this.antic.type !== 'doze') this.stopAntic('poked');
+      if (this.onCradle) this.onCradle('start');
+    }
+
+    // A two-finger click on him: a hug.
+    hug(held=false) {
+      const now = nowMs();
+      if (this.state === 'sleep' && !this.bedAwake) { if (this.stir) this.stir(2500); if (this.onHug) this.onHug('asleep'); return; }
+      this.hugStart = now; this.hugUntil = now + (held ? 10 * 60 * 1000 : 2600);
+      this.hugHeld = !!held;
+      this.hugSide = Math.random() < .5 ? -1 : 1; this.hugStyle = 'content';
+      // Comfort: tears dry up sooner.
+      if (this.cryUntil && now < this.cryUntil) this.cryUntil = now + 1400;
+      if (this.slumpCry && this.slumpUntil > now) this.slumpUntil = Math.min(this.slumpUntil, now + 1800);
+      if (this.onHug) this.onHug('awake');
+      this._emit('body-reaction', 'hug');
     }
 
     _pointerDown(event) {
       this.noteActivity();
+      if (event.button === 2) return this._hugDown(event);
       if (event.button != null && event.button !== 0) return;
       const t = nowMs();
       this.held = {
@@ -1380,6 +1567,15 @@
       }
       if (event.preventDefault) event.preventDefault();
       this._emit('gesture', 'pointer-pending');
+    }
+
+    _hugDown(event) {
+      this.held = {pointerId:event.pointerId, startClientX:event.clientX, startClientY:event.clientY,
+        startX:this.desktopX, startY:this.desktopY, startedAt:nowMs(), moved:false, mode:'pending', cradle:true,
+        zone:this._zoneFromEvent(event), wasPat:false, wasRub:false};
+      if (this.svg.setPointerCapture && event.pointerId != null) { try { this.svg.setPointerCapture(event.pointerId); } catch (_e) {} }
+      if (event.preventDefault) event.preventDefault();
+      this.hug(true);                       // the hug starts at the press and lasts while she holds on
     }
 
     _pointerMove(event) {
@@ -1459,8 +1655,9 @@
         this.seatTarget = 0;
         this.seat = 0;
         if (this.host) {
+          if (held.cradle) { this.hugUntil = 0; this.hugHeld = false; this.startCradle(); }
           this.hostCarry = true;
-          this.host.post({type:'drag-begin'});
+          this.host.post({type:'drag-begin', cradle:!!held.cradle});
         }
         this._emit('gesture', 'drag-start');
       }
@@ -1569,6 +1766,15 @@
       this.svg.style.cursor = 'grab';
       this.held = null;
       this._display(this.q('desktop-angry-mark'), false);
+      if (held.cradle && held.mode !== 'drag') {
+        // Let go of the hug (a quick tap still gets its moment).
+        const now = nowMs(), held2 = this.hugHeld;
+        this.hugHeld = false;
+        if (this.hugUntil) this.hugUntil = Math.max(now + 350, (this.hugStart || now) + 2600);
+        if (held2 && this.onHug) this.onHug('release', now - (this.hugStart || now));
+        if (event.preventDefault) event.preventDefault();
+        return;
+      }
       if (held.wasRub || (held.rubbing && held.mode !== 'drag')) {
         this._applyFace();
         this.desktopY = held.startY;
@@ -2363,6 +2569,16 @@
       const playing = this.performanceMode === 'guitar';
       show('punk-gigbag-back', punk && !playing);
       show('angel-wings-back', this.outfit === 'angel');
+      // Britannia Angel: a halo over his head, and an edge on his hands so they still
+      // read in front of the white wings and robe.
+      const angel = this.outfit === 'angel';
+      const halo = this._angelHalo();
+      if (halo) {
+        halo.setAttribute('display', angel ? 'inline' : 'none');
+        if (angel) halo.setAttribute('transform', `translate(0 ${(Math.sin(now / 1000 * 1.6) * 6).toFixed(1)})`);
+      }
+      if (angel) this._handEdge(true); else if (this._wasAngel) this._handEdge(false);
+      this._wasAngel = angel;
       show('punk-strap', !playing);
       show('punk-gigbag-ground', punk && playing && !lying && this.state !== 'sleep');
       // Puzzled (someone is stroking his hand): head tilted, a question mark.
@@ -2546,6 +2762,12 @@
         if (this.viseme === 'idle') { this._hideAllMouths(); this._display(this.q('g-mouth-pout'), true); }
         this._appendTransform(this.q('motion-brow-left'), 'translateY(4px) rotate(9deg)');
         this._appendTransform(this.q('motion-brow-right'), 'translateY(4px) rotate(-9deg)');
+        this._sulkShown = true;
+      } else if (this._sulkShown && !this.sulk) {
+        // Made up (or it blew over): the mark and the pout go with it, not some while later.
+        this._sulkShown = false;
+        if (!(this.glareUntil && now < this.glareUntil) && !this._maidSulk) this._display(this.q('desktop-angry-mark'), false);
+        if (typeof this._applyFace === 'function') this._applyFace();
       }
       if (dizzy) {
         // Four stars on a flat ring above his head; the far side smaller.
@@ -2622,7 +2844,7 @@
       if (!a) return false;
       this.antic = null;
       if (a.type === 'guitar') this.playGuitar(false);
-      if (a.type === 'fairies' && ['poked','interrupted'].includes(reason)) {
+      if (a.type === 'fairies' && ['poked','interrupted','startled'].includes(reason)) {
         // Startled away: they burst off in every direction and are gone.
         this.fairyScatter = {start:nowMs(), x:a.fairyAt ? a.fairyAt.x : 378, y:a.fairyAt ? a.fairyAt.y : -170, spin:Math.random() * Math.PI * 2};
       }
@@ -2669,11 +2891,12 @@
         }
       }
       if (!a) return;
-      // Interrupted by the world.
-      if (this.hostCarry || this.held || this._knockedOut(now) || this.state === 'sleep' || this.sleepSequence || this.hostLeap) {
-        this.stopAntic('interrupted');
-        return;
-      }
+      // Interrupted by the world. Only her hands on him are her doing: a fall he didn't
+      // ask for (the window under him went: a desktop switch, say) still startles the
+      // fairies off, but that's nobody's fault; sleep or a hop of his own just ends it.
+      if (this.held && this.held.mode === 'drag' && !this.held.wasPat) { this.stopAntic('interrupted'); return; }
+      if (this.hostCarry || this._knockedOut(now)) { this.stopAntic('startled'); return; }
+      if (this.state === 'sleep' || this.sleepSequence || this.hostLeap) { this.stopAntic('ended'); return; }
       if (a.type === 'read' && this.state !== 'reading' || a.type === 'tea' && this.state !== 'tea') {
         if (!this.transition) { this.stopAntic('status'); return; }
       }
@@ -3012,6 +3235,7 @@
     }
 
     hostLanded() {
+      if (this.cradle) { this.cradle = null; if (this.onCradle) this.onCradle('down'); }
       if (this.state === 'sleep' && this.hostCarry) this.stir();
       if (this.hostLeap) {
         this.hostLeap = null;
@@ -3135,7 +3359,12 @@
     }
 
     _renderPerformance(now) {
-      const active = this.performanceMode === 'guitar';
+      // Picked up (by the shell, or her mouse dragging him): he isn't playing
+      // while he dangles. The guitar and its hands go; his own hands come back
+      // and swing with him; set down, he plays on. (The guitar hands came
+      // loose from him when she lifted him by the neck mid-song.)
+      const lifted = this._isActuallyHeld() || !!(this.held && this.held.mode === 'drag');
+      const active = this.performanceMode === 'guitar' && !lifted;
       this._display(this.q('desktop-guitar'), active);
       this._display(this.q('hands-root'), !active);
       this._display(this.q('trench-hands'), false);
@@ -4009,6 +4238,12 @@
     }
 
     _render(now) {
+      // A little desktop pet doesn't need every display refresh: every other 60 Hz frame,
+      // 30 a second (animation runs at 24), and WebKit repaints far less often. Moving
+      // his window about is the shell's job and stays smooth regardless.
+      // Slow, long antics (a nodding doze) look smooth at 15.
+      if (now - (this._lastRenderAt || 0) < (this.frameReason === 'lull' ? 62 : 30)) return;
+      this._lastRenderAt = now;
       super._render(now);
       this._renderDesktop(now);
       this._renderAntic(now);

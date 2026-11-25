@@ -122,7 +122,7 @@ def make_handler(life: ScheduleLife, web_root: Path = WEB_ROOT):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'",
+                "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'",
             )
             self.end_headers()
             self.wfile.write(payload)

@@ -132,6 +132,32 @@
       const letterId = has('letter_id') && typeof arthur.letter_id === 'string' && /^[0-9a-f]{12}$/.test(arthur.letter_id)
         ? arthur.letter_id : null;
       if (has('letter_id') && !letterId) issues.push('arthur.letter_id');
+      // Optional (2026-11-25): meals today, who is with him, where exactly. Short lines
+      // or keys only; anything odd is dropped (and noted) rather than shown.
+      const shortLine = v => typeof v === 'string' && v.length > 0 && v.length <= 60 && v === v.trim() && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(v);
+      let meals = null;
+      if (has('meals')) {
+        const m = arthur.meals;
+        const eaten = m && Array.isArray(m.eaten) ? m.eaten.filter(x => ['breakfast', 'lunch', 'dinner'].includes(x)) : [];
+        const minutes = m && Number.isInteger(m.last_minutes) && m.last_minutes >= 0 ? m.last_minutes : null;
+        const item = m && shortLine(m.item) ? m.item : null;
+        if (m && typeof m === 'object') meals = {eaten, last_minutes:minutes, item};
+        else issues.push('arthur.meals');
+      }
+      let company = [];
+      if (has('company')) {
+        if (Array.isArray(arthur.company)) company = arthur.company.filter(p => p && shortLine(p.name) && (p.with === 'home' || p.with === 'outing')).slice(0, 3).map(p => ({name:p.name, with:p.with}));
+        else issues.push('arthur.company');
+      }
+      let spot = null;
+      if (has('spot')) {
+        const sp = arthur.spot || {};
+        const ROOMS = ['sitting_room', 'study', 'kitchen', 'bedroom', 'bathroom', 'magic_room', 'hall', 'spare_room', 'garden'];
+        if (sp.kind === 'room' && ROOMS.includes(sp.room)) spot = {kind:'room', room:sp.room, residence:sp.residence === 'hampshire_house' ? 'hampshire_house' : 'bloomsbury_flat'};
+        else if (sp.kind === 'venue' && shortLine(sp.label)) spot = {kind:'venue', label:sp.label};
+        else if (sp.kind === 'away' && shortLine(sp.city)) spot = {kind:'away', city:sp.city, label:shortLine(sp.label) ? sp.label : null};
+        else issues.push('arthur.spot');
+      }
       // Optional: older exporters send no outfit.
       const outfit = Object.prototype.hasOwnProperty.call(arthur, 'outfit')
         ? enumValue(arthur.outfit, ENUMS.outfit, 'arthur.outfit', issues)
@@ -227,7 +253,10 @@
           weather,
           letter,
           letter_id:letterId,
-          fairies
+          fairies,
+          meals,
+          company,
+          spot
         },
         issues:issues.slice()
       };
